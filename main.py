@@ -14,16 +14,8 @@ from image_converter_tab import ImageConverterGUI
 from duplicate_finder_tab import DuplicateFinderGUI
 from app_logger import logger
 import os
-import sys
 
-if getattr(sys, 'frozen', False):
-    # PyInstaller로 빌드된 실행 파일인 경우
-    BASE_DIR = Path(sys.executable).parent
-else:
-    # 일반 파이썬 스크립트로 실행되는 경우
-    BASE_DIR = Path(__file__).parent
-
-SETTINGS_FILE = BASE_DIR / "settings.json"
+SETTINGS_FILE = Path(__file__).parent / "settings.json"
 
 class DatasetOrganizerGUI:
     def __init__(self, root):
@@ -33,10 +25,7 @@ class DatasetOrganizerGUI:
         
         self.folder_path = ""
         self.folder_path_var = tk.StringVar() # For linking with tabs
-        
-        # 전체 코어 수의 30%를 기본값으로 설정 (최소 1개 보장)
-        total_cores = multiprocessing.cpu_count()
-        self.num_cores = max(1, int(total_cores * 0.3))
+        self.num_cores = multiprocessing.cpu_count()
         
         # UI 변수 초기화 (설정 로드 전 기본값)
         self.core_var = tk.IntVar(value=self.num_cores)
@@ -280,7 +269,7 @@ class DatasetOrganizerGUI:
     def create_duplicate_tab(self, notebook):
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="중복/유사 이미지")
-        self.duplicate_gui = DuplicateFinderGUI(frame, folder_path_var=self.folder_path_var)
+        self.duplicate_gui = DuplicateFinderGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
 
     def select_folder(self):
         folder = filedialog.askdirectory()

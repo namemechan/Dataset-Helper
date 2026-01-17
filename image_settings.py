@@ -39,7 +39,7 @@ def get_default_settings() -> dict:
         },
         'processing_settings': {
             'multiprocessing_enabled': True,
-            'max_workers': max(1, int((os.cpu_count() or 1) * 0.3)),
+            'max_workers': os.cpu_count() or 1,
             'chunk_size': 100,
             'memory_limit_mb': 4096
         },

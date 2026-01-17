@@ -4,23 +4,31 @@ from PIL import Image, ImageTk
 import threading
 import os
 import shutil
+import time
 from duplicate_finder import DuplicateFinder, ImageInfo
 from utils import format_number, ScrollableFrame
 
 class DuplicateFinderGUI:
-    def __init__(self, parent, folder_path_var=None):
+    def __init__(self, parent, folder_path_var=None, core_var=None):
         self.parent = parent
         self.finder = DuplicateFinder()
         self.search_thread = None
+        self.start_time = 0
         
         # 메인 앱과 폴더 경로 연동
         self.folder_path_var = folder_path_var if folder_path_var else tk.StringVar()
+        self.core_var = core_var # 코어 수 설정 변수
         
         # UI 변수
         self.check_md5 = tk.BooleanVar(value=True)
         self.check_dhash = tk.BooleanVar(value=False)
         self.match_resolution = tk.BooleanVar(value=True)
         self.similarity_threshold = tk.IntVar(value=5)
+        
+        # 범위 검색 변수
+        self.check_range_search = tk.BooleanVar(value=False)
+        self.range_start = tk.IntVar(value=0)
+        self.range_end = tk.IntVar(value=3)
         
         self.found_groups = {} 
         self.selected_file_path = None
@@ -52,19 +60,43 @@ class DuplicateFinderGUI:
         ttk.Checkbutton(opt_group, text="완전 중복 (MD5 해시)", 
                        variable=self.check_md5).pack(anchor=tk.W, pady=2)
         
+        # dHash 옵션
         ttk.Checkbutton(opt_group, text="유사 이미지 (dHash)", 
                        variable=self.check_dhash,
                        command=self.toggle_threshold).pack(anchor=tk.W, pady=2)
         
+        # === 유사도 설정 프레임 ===
         self.threshold_frame = ttk.Frame(opt_group)
         self.threshold_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(self.threshold_frame, text="유사도 허용 오차 (0-20):").pack(anchor=tk.W)
-        self.threshold_scale = ttk.Scale(self.threshold_frame, from_=0, to=20, 
+        
+        # 1) 단일 슬라이더
+        self.single_threshold_frame = ttk.Frame(self.threshold_frame)
+        self.single_threshold_frame.pack(fill=tk.X)
+        
+        ttk.Label(self.single_threshold_frame, text="유사도 허용 오차 (0-20):").pack(anchor=tk.W)
+        self.threshold_scale = ttk.Scale(self.single_threshold_frame, from_=0, to=20, 
                                        variable=self.similarity_threshold, orient=tk.HORIZONTAL)
         self.threshold_scale.pack(fill=tk.X)
-        self.threshold_label = ttk.Label(self.threshold_frame, text="5")
+        self.threshold_label = ttk.Label(self.single_threshold_frame, text="5")
         self.threshold_label.pack()
         self.threshold_scale.configure(command=lambda v: self.threshold_label.configure(text=str(int(float(v)))))
+        
+        # 2) 범위 검색 옵션
+        ttk.Separator(self.threshold_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        
+        ttk.Checkbutton(self.threshold_frame, text="유사도 그룹 검색 (범위)", 
+                       variable=self.check_range_search,
+                       command=self.toggle_threshold).pack(anchor=tk.W)
+        
+        self.range_frame = ttk.Frame(self.threshold_frame)
+        self.range_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(self.range_frame, text="시작값:").pack(side=tk.LEFT)
+        ttk.Spinbox(self.range_frame, from_=0, to=20, textvariable=self.range_start, width=3).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(self.range_frame, text="종료값:").pack(side=tk.LEFT)
+        ttk.Spinbox(self.range_frame, from_=0, to=20, textvariable=self.range_end, width=3).pack(side=tk.LEFT, padx=5)
+        # ==========================
         
         ttk.Separator(opt_group, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
         
@@ -99,7 +131,7 @@ class DuplicateFinderGUI:
         self.tree.heading("size", text="크기")
         self.tree.heading("path", text="경로")
         
-        self.tree.column("#0", width=120, stretch=False) # Group ID
+        self.tree.column("#0", width=200, stretch=False) # Group ID area increased
         self.tree.column("filename", width=150)
         self.tree.column("resolution", width=100)
         self.tree.column("size", width=80)
@@ -142,12 +174,34 @@ class DuplicateFinderGUI:
         self.toggle_threshold() # 초기 상태 설정
 
     def toggle_threshold(self):
+        # 1. dHash가 꺼져있으면 전체 비활성화
         if not self.check_dhash.get():
             for child in self.threshold_frame.winfo_children():
+                # child 프레임 내부 위젯들도 비활성화
+                for sub in child.winfo_children():
+                    sub.configure(state=tk.DISABLED)
+            return
+
+        # 2. dHash 켜져있음 -> 전체 활성화 먼저 수행 (체크박스 등 살리기 위해)
+        for child in self.threshold_frame.winfo_children():
+            for sub in child.winfo_children():
+                sub.configure(state=tk.NORMAL)
+
+        # 3. 범위 검색 체크 여부에 따라 교차 비활성화
+        if self.check_range_search.get():
+            # 범위 검색 모드: 단일 슬라이더 비활성화
+            for child in self.single_threshold_frame.winfo_children():
                 child.configure(state=tk.DISABLED)
-        else:
-            for child in self.threshold_frame.winfo_children():
+            # 범위 입력 활성화
+            for child in self.range_frame.winfo_children():
                 child.configure(state=tk.NORMAL)
+        else:
+            # 단일 모드: 슬라이더 활성화
+            for child in self.single_threshold_frame.winfo_children():
+                child.configure(state=tk.NORMAL)
+            # 범위 입력 비활성화
+            for child in self.range_frame.winfo_children():
+                child.configure(state=tk.DISABLED)
 
     def on_preview_resize(self, event):
         """미리보기 영역 크기가 변할 때 이미지 재출력"""
@@ -169,6 +223,7 @@ class DuplicateFinderGUI:
         self.btn_search.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
         self.progress_bar['value'] = 0
+        self.start_time = time.time()
         
         # 쓰레드 시작
         self.search_thread = threading.Thread(target=self.run_search, args=(folder,))
@@ -182,13 +237,33 @@ class DuplicateFinderGUI:
 
     def run_search(self, folder):
         try:
+            # 설정된 코어 수 가져오기 (설정이 없으면 기본값인 None 전달 -> duplicate_finder 내부 로직 따름)
+            max_workers = self.core_var.get() if self.core_var else None
+            
+            # 범위 검색 설정 확인 및 값 교정
+            range_threshold = None
+            if self.check_dhash.get() and self.check_range_search.get():
+                s = self.range_start.get()
+                e = self.range_end.get()
+                
+                # 사용자가 역순으로 입력했을 경우 (예: 6 ~ 3) -> 자동 스왑 (3 ~ 6)
+                if s > e:
+                    s, e = e, s
+                    # UI에도 반영하여 사용자가 알 수 있게 함
+                    self.parent.after(0, lambda: self.range_start.set(s))
+                    self.parent.after(0, lambda: self.range_end.set(e))
+                
+                range_threshold = (s, e)
+
             results = self.finder.find_duplicates(
                 folder,
                 check_md5=self.check_md5.get(),
                 check_dhash=self.check_dhash.get(),
                 match_resolution=self.match_resolution.get(),
                 similarity_threshold=self.similarity_threshold.get(),
-                progress_callback=self.update_progress
+                progress_callback=self.update_progress,
+                max_workers=max_workers,
+                range_threshold=range_threshold
             )
             self.parent.after(0, self.search_complete, results)
         except Exception as e:
@@ -204,17 +279,60 @@ class DuplicateFinderGUI:
     def search_complete(self, results):
         self.found_groups = results
         self.reset_ui()
-        self.progress_var.set(f"검색 완료: {len(results)}개의 중복 그룹 발견")
+        elapsed = time.time() - self.start_time
         
-        # 트리뷰 업데이트
-        for group_id, data in results.items():
+        # 결과 처리 로직 분기
+        if isinstance(results, dict) and 'mode' in results and results['mode'] == 'range':
+            # === 범위 검색 결과 ===
+            md5_results = results.get('md5', {})
+            dhash_results = results.get('dhash', {}) # {threshold: {group_id: ...}}
+            
+            count_total = len(md5_results)
+            for th_res in dhash_results.values():
+                count_total += len(th_res)
+                
+            self.progress_var.set(f"검색 완료: 총 {count_total}개의 그룹/쌍 발견 (소요 시간: {elapsed:.2f}초)")
+            
+            # 1. MD5 결과 표시
+            if md5_results:
+                md5_root = self.tree.insert("", tk.END, text=f"완전 중복 (MD5) - {len(md5_results)}그룹", open=True)
+                self._insert_groups_to_tree(md5_root, md5_results)
+            
+            # 2. dHash 결과 표시 (Threshold 별로)
+            # 키(Threshold)를 오름차순 정렬
+            sorted_thresholds = sorted(dhash_results.keys())
+            
+            for th in sorted_thresholds:
+                groups = dhash_results[th]
+                if not groups: continue
+                
+                # 최상위 노드: 유사도_N그룹_M개
+                th_node_text = f"유사도_{th}그룹_{len(groups)}개"
+                th_root = self.tree.insert("", tk.END, text=th_node_text, open=False)
+                
+                self._insert_groups_to_tree(th_root, groups)
+                
+        else:
+            # === 기존 단일 검색 결과 ===
+            self.progress_var.set(f"검색 완료: {len(results)}개의 중복 그룹/쌍 발견 (소요 시간: {elapsed:.2f}초)")
+            self._insert_groups_to_tree("", results) # Root에 바로 추가
+
+    def _insert_groups_to_tree(self, parent_node, groups_dict):
+        """트리뷰에 그룹 목록을 삽입하는 헬퍼 함수"""
+        for group_id, data in groups_dict.items():
             group_type = data['type']
             items = data['items']
             
-            type_text = "[완전 중복]" if group_type == 'exact' else "[유사]"
-            rep = items[0]
+            # 용어 결정: 2개면 '쌍', 3개 이상이면 '그룹'
+            term = "쌍" if len(items) == 2 else "그룹"
             
-            group_node = self.tree.insert("", tk.END, text=f"{type_text} 그룹 ({len(items)}개)", open=True, 
+            if group_type == 'exact':
+                label = f"[완전 중복] {term}"
+            else:
+                label = f"[유사] {term}"
+            
+            rep = items[0]
+            group_node = self.tree.insert(parent_node, tk.END, text=f"{label} ({len(items)}개)", open=True, 
                                         values=("", f"{rep.resolution[0]}x{rep.resolution[1]}", "", ""))
             
             for item in items:
