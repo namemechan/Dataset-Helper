@@ -35,9 +35,15 @@ class DatasetOrganizerGUI:
         self.use_move_solo = tk.BooleanVar(value=False) # Solo 태그 이동 옵션 추가
         self.use_custom_move = tk.BooleanVar(value=False)
         self.use_replace = tk.BooleanVar(value=False)
+        
         self.use_delete = tk.BooleanVar(value=False)
+        self.use_conditional_delete = tk.BooleanVar(value=False) # 조건부 삭제
+
         self.use_add = tk.BooleanVar(value=False)
+        self.use_conditional_add = tk.BooleanVar(value=False) # 조건부 추가
+        
         self.find_subdirs = tk.BooleanVar(value=False)
+        self.tag_find_subdirs = tk.BooleanVar(value=False) # 태그 탭용 하위폴더 검색
 
         # 누락된 태그 추가 변수
         self.use_missing_tag = tk.BooleanVar(value=False)
@@ -174,6 +180,11 @@ class DatasetOrganizerGUI:
         container = ttk.Frame(frame, padding="5")
         container.pack(fill=tk.BOTH, expand=True)
         
+        # --- 상단 옵션: 하위 폴더 포함 ---
+        frame_top = ttk.Frame(container)
+        frame_top.pack(anchor=tk.W, fill=tk.X, pady=(0, 5))
+        ttk.Checkbutton(frame_top, text="하위 폴더 포함 검색", variable=self.tag_find_subdirs).pack(side=tk.LEFT)
+        
         # --- 옵션 1: 인원수 태그 이동 & Solo 태그 이동 ---
         frame_person = ttk.Frame(container)
         frame_person.pack(anchor=tk.W, fill=tk.X, pady=(0, 5))
@@ -206,11 +217,26 @@ class DatasetOrganizerGUI:
         group_add = ttk.LabelFrame(container, text="태그 추가 (인원수/solo 뒤에 자동 삽입)", padding="5")
         group_add.pack(fill=tk.X, pady=5)
         
-        ttk.Checkbutton(group_add, text="사용", variable=self.use_add).pack(side=tk.LEFT)
-        
-        ttk.Label(group_add, text="추가할 태그:").pack(side=tk.LEFT, padx=5)
-        self.add_tag_entry = ttk.Entry(group_add)
+        # 행 1: 기본 추가 기능
+        frame_add_main = ttk.Frame(group_add)
+        frame_add_main.pack(fill=tk.X, pady=2)
+        ttk.Checkbutton(frame_add_main, text="사용", variable=self.use_add).pack(side=tk.LEFT)
+        ttk.Label(frame_add_main, text="추가할 태그:").pack(side=tk.LEFT, padx=5)
+        self.add_tag_entry = ttk.Entry(frame_add_main)
         self.add_tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 행 2: 조건부 추가 기능
+        frame_add_cond = ttk.Frame(group_add)
+        frame_add_cond.pack(fill=tk.X, pady=2)
+        
+        def toggle_cond_add():
+            state = tk.NORMAL if self.use_conditional_add.get() else tk.DISABLED
+            self.cond_add_entry.config(state=state)
+
+        ttk.Checkbutton(frame_add_cond, text="조건부 추가 사용", variable=self.use_conditional_add, command=toggle_cond_add).pack(side=tk.LEFT)
+        ttk.Label(frame_add_cond, text="조건 태그 (|로 구분):").pack(side=tk.LEFT, padx=5)
+        self.cond_add_entry = ttk.Entry(frame_add_cond, state=tk.DISABLED)
+        self.cond_add_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
         # --- 옵션 2: 추가 이동 태그 ---
         group_move = ttk.LabelFrame(container, text="추가 이동 태그 (인원수/추가 태그 뒤)", padding="5")
@@ -241,11 +267,26 @@ class DatasetOrganizerGUI:
         group_delete = ttk.LabelFrame(container, text="태그 삭제 (쉼표 자동 정리 - 연속 태그 가능)", padding="5")
         group_delete.pack(fill=tk.X, pady=5)
         
-        ttk.Checkbutton(group_delete, text="사용", variable=self.use_delete).pack(side=tk.LEFT)
-        
-        ttk.Label(group_delete, text="삭제할 태그 (|로 구분):").pack(side=tk.LEFT, padx=5)
-        self.delete_tags_entry = ttk.Entry(group_delete)
+        # 행 1: 기본 삭제 기능
+        frame_del_main = ttk.Frame(group_delete)
+        frame_del_main.pack(fill=tk.X, pady=2)
+        ttk.Checkbutton(frame_del_main, text="사용", variable=self.use_delete).pack(side=tk.LEFT)
+        ttk.Label(frame_del_main, text="삭제할 태그 (|로 구분):").pack(side=tk.LEFT, padx=5)
+        self.delete_tags_entry = ttk.Entry(frame_del_main)
         self.delete_tags_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 행 2: 조건부 삭제 기능
+        frame_del_cond = ttk.Frame(group_delete)
+        frame_del_cond.pack(fill=tk.X, pady=2)
+        
+        def toggle_cond_del():
+            state = tk.NORMAL if self.use_conditional_delete.get() else tk.DISABLED
+            self.cond_del_entry.config(state=state)
+
+        ttk.Checkbutton(frame_del_cond, text="조건부 삭제 사용", variable=self.use_conditional_delete, command=toggle_cond_del).pack(side=tk.LEFT)
+        ttk.Label(frame_del_cond, text="조건 태그 (|로 구분):").pack(side=tk.LEFT, padx=5)
+        self.cond_del_entry = ttk.Entry(frame_del_cond, state=tk.DISABLED)
+        self.cond_del_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
         # --- 실행 버튼 ---
         btn_frame = ttk.Frame(container)
@@ -253,6 +294,8 @@ class DatasetOrganizerGUI:
         
         ttk.Button(btn_frame, text="미리보기", command=self.preview_tags).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="태그 처리 실행", command=self.process_tags).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="실행 취소", command=self.undo_tags, 
+                  style="Accent.TButton").pack(side=tk.LEFT, padx=5)
         
         # --- 결과 텍스트 ---
         ttk.Label(container, text="결과 로그:").pack(anchor=tk.W)
@@ -284,6 +327,27 @@ class DatasetOrganizerGUI:
             return False
         return True
     
+    def undo_tags(self):
+        if not self.check_folder():
+            return
+            
+        result = messagebox.askyesno("확인", "마지막 태그 처리 작업을 취소하시겠습니까?")
+        if not result:
+            return
+            
+        success, fail, logs = TagProcessor.undo_last_processing(self.folder_path)
+        
+        self.tag_text.delete(1.0, tk.END)
+        self.tag_text.insert(tk.END, f"복구 성공: {success}개, 실패: {fail}개\n\n")
+        self.tag_text.insert(tk.END, "\n".join(logs))
+        
+        if success > 0:
+            messagebox.showinfo("완료", f"실행 취소 완료\n복구: {success}개, 실패: {fail}개")
+        elif not logs or "실행 취소할" in logs[0]:
+             messagebox.showinfo("알림", "실행 취소할 내역이 없습니다.")
+        else:
+             messagebox.showerror("오류", "실행 취소 중 오류가 발생했습니다.")
+
     def preview_rename(self):
         if not self.check_folder():
             return
@@ -429,8 +493,11 @@ class DatasetOrganizerGUI:
             'missing_gender': self.missing_gender.get(),
             'missing_count': self.missing_count.get(),
             
+            # 태그 추가 옵션
             'use_add': self.use_add.get(),
             'add_tags': self.add_tag_entry.get().strip(),
+            'use_conditional_add': self.use_conditional_add.get(),
+            'condition_add_tags': self.cond_add_entry.get().strip(),
             
             'use_move_custom': self.use_custom_move.get(),
             'move_custom_tags': [t.strip() for t in self.custom_move_entry.get().split('|') if t.strip()],
@@ -439,8 +506,11 @@ class DatasetOrganizerGUI:
             'replace_find': self.replace_find_entry.get().strip(),
             'replace_with': self.replace_with_entry.get().strip(),
             
+            # 태그 삭제 옵션
             'use_delete': self.use_delete.get(),
-            'delete_tags': [t.strip() for t in self.delete_tags_entry.get().split('|') if t.strip()]
+            'delete_tags': [t.strip() for t in self.delete_tags_entry.get().split('|') if t.strip()],
+            'use_conditional_delete': self.use_conditional_delete.get(),
+            'condition_delete_tags': self.cond_del_entry.get().strip(),
         }
         return options
 
@@ -449,7 +519,7 @@ class DatasetOrganizerGUI:
             return
         
         # txt 파일 가져오기
-        paired_files = get_paired_files(self.folder_path)
+        paired_files = get_paired_files(self.folder_path, recursive=self.tag_find_subdirs.get())
         text_files = [txt for _, txt in paired_files]
         
         if not text_files:
@@ -483,11 +553,17 @@ class DatasetOrganizerGUI:
 
         confirm_msg = "선택한 옵션으로 태그 처리를 진행하시겠습니까?\n\n"
         if options['use_replace']: confirm_msg += "- 태그 치환\n"
-        if options['use_delete']: confirm_msg += "- 태그 삭제\n"
+        if options['use_delete']: 
+            confirm_msg += "- 태그 삭제"
+            if options['use_conditional_delete']: confirm_msg += " (조건부)"
+            confirm_msg += "\n"
         if options['use_missing_tag']: confirm_msg += f"- 누락된 인원수 태그 추가 ({options['missing_count']}{options['missing_gender']})\n"
         if options['use_move_person']: confirm_msg += "- 인원수 태그 이동\n"
         if options['use_move_solo']: confirm_msg += "- 'solo' 태그 이동\n"
-        if options['use_add']: confirm_msg += "- 태그 추가\n"
+        if options['use_add']: 
+            confirm_msg += "- 태그 추가"
+            if options['use_conditional_add']: confirm_msg += " (조건부)"
+            confirm_msg += "\n"
         if options['use_move_custom']: confirm_msg += "- 추가 태그 이동\n"
         
         result = messagebox.askyesno("확인", confirm_msg)
@@ -495,7 +571,7 @@ class DatasetOrganizerGUI:
             return
         
         # txt 파일 가져오기
-        paired_files = get_paired_files(self.folder_path)
+        paired_files = get_paired_files(self.folder_path, recursive=self.tag_find_subdirs.get())
         text_files = [txt for _, txt in paired_files]
         
         if not text_files:
@@ -503,7 +579,7 @@ class DatasetOrganizerGUI:
             return
         
         num_cores = self.core_var.get()
-        success, fail, logs = TagProcessor.process_folder(text_files, options, num_cores)
+        success, fail, logs = TagProcessor.process_folder(text_files, options, num_cores, folder_path=self.folder_path)
         
         self.tag_text.delete(1.0, tk.END)
         self.tag_text.insert(tk.END, f"성공: {success}개, 실패: {fail}개\n\n")
@@ -526,16 +602,25 @@ class DatasetOrganizerGUI:
             "use_missing_tag": self.use_missing_tag.get(),
             "missing_gender": self.missing_gender.get(),
             "missing_count": self.missing_count.get(),
+            
             "use_add": self.use_add.get(),
             "add_tag_entry": self.add_tag_entry.get(),
+            "use_conditional_add": self.use_conditional_add.get(),
+            "condition_add_tags": self.cond_add_entry.get(),
+            
             "use_custom_move": self.use_custom_move.get(),
             "custom_move_entry": self.custom_move_entry.get(),
             "use_replace": self.use_replace.get(),
             "replace_find_entry": self.replace_find_entry.get(),
             "replace_with_entry": self.replace_with_entry.get(),
+            
             "use_delete": self.use_delete.get(),
             "delete_tags_entry": self.delete_tags_entry.get(),
+            "use_conditional_delete": self.use_conditional_delete.get(),
+            "condition_delete_tags": self.cond_del_entry.get(),
+            
             "find_subdirs": self.find_subdirs.get(),
+            "tag_find_subdirs": self.tag_find_subdirs.get(),
         }
         
         try:
@@ -581,10 +666,19 @@ class DatasetOrganizerGUI:
             if "use_missing_tag" in settings: self.use_missing_tag.set(settings["use_missing_tag"])
             if "missing_gender" in settings: self.missing_gender.set(settings["missing_gender"])
             if "missing_count" in settings: self.missing_count.set(settings["missing_count"])
+            
             if "use_add" in settings: self.use_add.set(settings["use_add"])
             if "add_tag_entry" in settings:
                 self.add_tag_entry.delete(0, tk.END)
                 self.add_tag_entry.insert(0, settings["add_tag_entry"])
+            if "use_conditional_add" in settings: 
+                self.use_conditional_add.set(settings["use_conditional_add"])
+                if settings["use_conditional_add"]:
+                    self.cond_add_entry.config(state=tk.NORMAL)
+            if "condition_add_tags" in settings:
+                self.cond_add_entry.delete(0, tk.END)
+                self.cond_add_entry.insert(0, settings["condition_add_tags"])
+            
             if "use_custom_move" in settings: self.use_custom_move.set(settings["use_custom_move"])
             if "custom_move_entry" in settings:
                 self.custom_move_entry.delete(0, tk.END)
@@ -596,12 +690,23 @@ class DatasetOrganizerGUI:
             if "replace_with_entry" in settings:
                 self.replace_with_entry.delete(0, tk.END)
                 self.replace_with_entry.insert(0, settings["replace_with_entry"])
+            
             if "use_delete" in settings: self.use_delete.set(settings["use_delete"])
             if "delete_tags_entry" in settings:
                 self.delete_tags_entry.delete(0, tk.END)
                 self.delete_tags_entry.insert(0, settings["delete_tags_entry"])
+            if "use_conditional_delete" in settings: 
+                self.use_conditional_delete.set(settings["use_conditional_delete"])
+                if settings["use_conditional_delete"]:
+                    self.cond_del_entry.config(state=tk.NORMAL)
+            if "condition_delete_tags" in settings:
+                self.cond_del_entry.delete(0, tk.END)
+                self.cond_del_entry.insert(0, settings["condition_delete_tags"])
+            
             if "find_subdirs" in settings:
                 self.find_subdirs.set(settings["find_subdirs"])
+            if "tag_find_subdirs" in settings:
+                self.tag_find_subdirs.set(settings["tag_find_subdirs"])
                 
         except Exception as e:
             print(f"설정 로드 실패: {e}")

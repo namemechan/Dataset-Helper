@@ -38,15 +38,23 @@ class ImageConverterLogger:
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
 
-        # File Handler
+        # File Handler (Daily Log)
         if log_file:
-            log_dir = os.path.dirname(log_file)
-            if not os.path.exists(log_dir):
-                os.makedirs(log_dir)
-            self.file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
-            self.file_handler.setLevel(log_level)
-            self.file_handler.setFormatter(formatter)
-            self.logger.addHandler(self.file_handler)
+            # log_file 인자가 들어오더라도 날짜 기반 파일명으로 덮어씀 (일관성 유지)
+            log_dir = os.path.dirname(log_file) if os.path.dirname(log_file) else 'logs'
+        else:
+            log_dir = 'logs'
+            
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        daily_log_file = os.path.join(log_dir, f"app_{today_str}.log")
+        
+        self.file_handler = logging.handlers.RotatingFileHandler(daily_log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+        self.file_handler.setLevel(log_level)
+        self.file_handler.setFormatter(formatter)
+        self.logger.addHandler(self.file_handler)
 
     def setup_gui_logging_handler(self, text_widget):
         self.log_stream = GuiLoggingStream(text_widget)

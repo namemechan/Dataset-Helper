@@ -1,63 +1,82 @@
 """
 이름 변경 모듈 - 파일 쌍 일괄 이름 변경 및 실행 취소
 """
-from pathlib import Path
-from typing import List, Tuple, Optional, Dict
+import os
+import glob
 import json
 from datetime import datetime
+from pathlib import Path
+from typing import List, Tuple, Optional, Dict
 from utils import get_paired_files, format_number
 
-# 실행 취소 파일 경로 (프로그램 실행 디렉토리)
-UNDO_FILE_PATH = Path(__file__).parent / ".rename_undo.json"
+# 실행 취소 파일 저장 경로
+UNDO_DIR = Path("logs/undo")
 
 class RenameProcessor:
     @staticmethod
     def save_undo_info(folder_path: str, rename_history: List[Tuple[str, str, str, str]]):
         """
-        실행 취소를 위한 정보 저장
+        실행 취소를 위한 정보 저장 (날짜별 개별 파일)
         """
+        if not UNDO_DIR.exists():
+            UNDO_DIR.mkdir(parents=True, exist_ok=True)
+            
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        undo_filename = f"undo_rename_{timestamp}.json"
+        undo_path = UNDO_DIR / undo_filename
+        
         undo_data = {
+            "type": "rename",
             "folder_path": str(Path(folder_path).absolute()),
             "timestamp": datetime.now().isoformat(),
             "history": rename_history
         }
         
-        with open(UNDO_FILE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(undo_data, f, ensure_ascii=False, indent=2)
+        try:
+            with open(undo_path, 'w', encoding='utf-8') as f:
+                json.dump(undo_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"실행 취소 파일 저장 실패: {e}")
     
     @staticmethod
-    def load_undo_info(folder_path: str) -> Optional[List[Tuple[str, str, str, str]]]:
+    def get_latest_undo_file(folder_path: str) -> Optional[Tuple[Path, Dict]]:
         """
-        실행 취소 정보 로드 및 경로 검증
+        가장 최근의 실행 취소 파일 찾기
         """
-        if not UNDO_FILE_PATH.exists():
+        if not UNDO_DIR.exists():
             return None
         
-        try:
-            with open(UNDO_FILE_PATH, 'r', encoding='utf-8') as f:
-                undo_data = json.load(f)
-            
-            # 현재 작업 중인 폴더와 저장된 폴더 경로가 일치하는지 확인
-            saved_path = Path(undo_data.get("folder_path", ""))
-            current_path = Path(folder_path).absolute()
-            
-            if saved_path != current_path:
-                return None
+        # 이름 변경 undo 파일 검색
+        files = sorted(UNDO_DIR.glob("undo_rename_*.json"), reverse=True)
+        
+        current_path = Path(folder_path).absolute()
+        
+        for file_path in files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                # 해당 폴더에 대한 작업인지 확인
+                saved_path = Path(data.get("folder_path", ""))
+                if saved_path == current_path:
+                    return file_path, data
+            except Exception:
+                continue
                 
-            return undo_data.get("history", [])
-        except Exception as e:
-            print(f"실행 취소 정보 로드 실패: {e}")
-            return None
+        return None
     
     @staticmethod
     def undo_rename(folder_path: str) -> Tuple[int, int, List[str]]:
         """
         이름 변경 실행 취소
         """
-        history = RenameProcessor.load_undo_info(folder_path)
+        undo_info = RenameProcessor.get_latest_undo_file(folder_path)
         
-        if not history:
+        if not undo_info:
             return 0, 0, ["현재 폴더에 대한 실행 취소 내역이 없습니다."]
+        
+        undo_file_path, data = undo_info
+        history = data.get("history", [])
         
         folder = Path(folder_path)
         success = 0
@@ -65,13 +84,14 @@ class RenameProcessor:
         logs = []
         
         # 역순으로 복구
-        for orig_img_name, orig_txt_name, new_img_name, new_txt_name in history:
+        for orig_img_name, orig_txt_name, new_img_name, new_txt_name in reversed(history):
             try:
                 new_img = folder / new_img_name
                 new_txt = folder / new_txt_name
                 orig_img = folder / orig_img_name
                 orig_txt = folder / orig_txt_name
                 
+                # 파일이 존재하는 경우에만 복구 시도
                 if new_img.exists():
                     new_img.rename(orig_img)
                 if new_txt.exists():
@@ -85,8 +105,11 @@ class RenameProcessor:
                 fail += 1
         
         # 사용한 실행 취소 파일 삭제
-        if UNDO_FILE_PATH.exists():
-            UNDO_FILE_PATH.unlink()
+        try:
+            undo_file_path.unlink()
+            logs.append(f"실행 취소 파일 삭제됨: {undo_file_path.name}")
+        except Exception as e:
+            logs.append(f"실행 취소 파일 삭제 실패: {e}")
         
         return success, fail, logs
     

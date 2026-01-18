@@ -102,17 +102,26 @@ def is_text_file(file_path: Path) -> bool:
     return file_path.suffix.lower() == TEXT_EXTENSION
 
 
-def get_paired_files(folder_path: Path) -> List[Tuple[Path, Path]]:
+def get_paired_files(folder_path: Path, recursive: bool = False) -> List[Tuple[Path, Path]]:
     """
     폴더 내 이미지-텍스트 파일 쌍 반환
+    Args:
+        folder_path: 검색할 폴더 경로
+        recursive: 하위 폴더 포함 여부
     Returns: [(image_path, text_path), ...]
     """
     folder = Path(folder_path)
     if not folder.exists():
         return []
     
+    # 파일 탐색
+    if recursive:
+        files = folder.rglob("*")
+    else:
+        files = folder.iterdir()
+        
     # 모든 이미지 파일 찾기
-    image_files = [f for f in folder.iterdir() if f.is_file() and is_image_file(f)]
+    image_files = [f for f in files if f.is_file() and is_image_file(f)]
     
     paired = []
     for img in image_files:
@@ -120,7 +129,7 @@ def get_paired_files(folder_path: Path) -> List[Tuple[Path, Path]]:
         if txt_file.exists():
             paired.append((img, txt_file))
     
-    return sorted(paired, key=lambda x: x[0].name)
+    return sorted(paired, key=lambda x: str(x[0])) # 전체 경로 기준으로 정렬
 
 
 def process_with_multicore(func: Callable, items: List[Any], num_cores: int) -> List[Any]:
