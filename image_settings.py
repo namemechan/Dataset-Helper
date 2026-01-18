@@ -1,7 +1,15 @@
 import json
 import os
+import sys
+from pathlib import Path
 
-CONFIG_FILE = 'converter_config.json'
+# 실행 환경(exe/script)에 따라 설정 파일 경로 결정
+if getattr(sys, 'frozen', False):
+    APP_DIR = Path(sys.executable).parent
+else:
+    APP_DIR = Path(__file__).parent
+
+CONFIG_FILE = APP_DIR / 'converter_config.json'
 
 def get_default_settings() -> dict:
     """기본 설정값을 반환합니다."""
