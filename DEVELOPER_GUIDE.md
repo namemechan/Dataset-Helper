@@ -128,6 +128,14 @@ main.py
 
 ## 5. 버전별 개발 현황 (Version History)
 
+### v1.0.4 (2026-02-01)
+- **Duplicate Finder 기능 확장**:
+    - **태그 내용 기반 검색**: 이미지뿐만 아니라 짝이 되는 캡션 파일(.txt)의 내용을 비교하여 유사한 이미지를 찾는 기능 추가 (Jaccard Similarity 활용).
+    - **텍스트 파일 동반 처리**: 중복 이미지 삭제/이동 시, 연결된 캡션 파일(.txt)도 함께 처리하는 옵션 추가.
+- **아키텍처 개선**:
+    - `duplicate_finder.py`에 태그 비교 및 로딩 로직 통합.
+    - `ImageInfo` 구조체에 `tag_set` 필드 추가.
+
 ### v1.0.3 (2026-01-19)
 - **EXE 패키징 안정화**:
     - 설정 파일(`settings.json`, `converter_config.json`) 저장 경로 로직 개선.

@@ -22,13 +22,19 @@ class DuplicateFinderGUI:
         # UI 변수
         self.check_md5 = tk.BooleanVar(value=True)
         self.check_dhash = tk.BooleanVar(value=False)
+        self.check_tag_search = tk.BooleanVar(value=False) # 태그 검색
+        
         self.match_resolution = tk.BooleanVar(value=True)
         self.similarity_threshold = tk.IntVar(value=5)
+        self.tag_similarity_threshold = tk.IntVar(value=100) # 태그 유사도 (0-100)
         
         # 범위 검색 변수
         self.check_range_search = tk.BooleanVar(value=False)
         self.range_start = tk.IntVar(value=0)
         self.range_end = tk.IntVar(value=3)
+        
+        # 액션 옵션
+        self.delete_pair_txt = tk.BooleanVar(value=False)
         
         self.found_groups = {} 
         self.selected_file_path = None
@@ -60,10 +66,26 @@ class DuplicateFinderGUI:
         ttk.Checkbutton(opt_group, text="완전 중복 (MD5 해시)", 
                        variable=self.check_md5).pack(anchor=tk.W, pady=2)
         
+        # 태그 검색 옵션
+        ttk.Checkbutton(opt_group, text="태그 내용 기반 검색 (.txt)", 
+                       variable=self.check_tag_search,
+                       command=self.toggle_ui_state).pack(anchor=tk.W, pady=2)
+                       
+        self.tag_frame = ttk.Frame(opt_group, padding=(20, 0, 0, 0))
+        self.tag_frame.pack(fill=tk.X, pady=2)
+        
+        ttk.Label(self.tag_frame, text="태그 일치율 (%):").pack(anchor=tk.W)
+        self.tag_scale = ttk.Scale(self.tag_frame, from_=0, to=100, 
+                                 variable=self.tag_similarity_threshold, orient=tk.HORIZONTAL)
+        self.tag_scale.pack(fill=tk.X)
+        self.tag_label = ttk.Label(self.tag_frame, text="100")
+        self.tag_label.pack()
+        self.tag_scale.configure(command=lambda v: self.tag_label.configure(text=str(int(float(v)))))
+        
         # dHash 옵션
         ttk.Checkbutton(opt_group, text="유사 이미지 (dHash)", 
                        variable=self.check_dhash,
-                       command=self.toggle_threshold).pack(anchor=tk.W, pady=2)
+                       command=self.toggle_ui_state).pack(anchor=tk.W, pady=2)
         
         # === 유사도 설정 프레임 ===
         self.threshold_frame = ttk.Frame(opt_group)
@@ -86,7 +108,7 @@ class DuplicateFinderGUI:
         
         ttk.Checkbutton(self.threshold_frame, text="유사도 그룹 검색 (범위)", 
                        variable=self.check_range_search,
-                       command=self.toggle_threshold).pack(anchor=tk.W)
+                       command=self.toggle_ui_state).pack(anchor=tk.W)
         
         self.range_frame = ttk.Frame(self.threshold_frame)
         self.range_frame.pack(fill=tk.X, pady=5)
@@ -167,41 +189,45 @@ class DuplicateFinderGUI:
         action_frame = ttk.Frame(right_frame)
         action_frame.pack(fill=tk.X, pady=10)
         
+        ttk.Checkbutton(action_frame, text="동일명의 태깅파일(.txt)도 같이 처리", 
+                       variable=self.delete_pair_txt).pack(fill=tk.X, pady=(0, 10))
+        
         ttk.Button(action_frame, text="선택한 파일 삭제", command=self.delete_selected, style="Accent.TButton").pack(fill=tk.X, pady=2)
         ttk.Button(action_frame, text="선택한 파일 이동...", command=self.move_selected).pack(fill=tk.X, pady=2)
         ttk.Button(action_frame, text="선택한 파일이 속한 폴더 열기", command=self.open_folder).pack(fill=tk.X, pady=2)
         
-        self.toggle_threshold() # 초기 상태 설정
+        self.toggle_ui_state() # 초기 상태 설정
 
-    def toggle_threshold(self):
-        # 1. dHash가 꺼져있으면 전체 비활성화
-        if not self.check_dhash.get():
-            for child in self.threshold_frame.winfo_children():
-                # child 프레임 내부 위젯들도 비활성화
-                for sub in child.winfo_children():
-                    sub.configure(state=tk.DISABLED)
-            return
-
-        # 2. dHash 켜져있음 -> 전체 활성화 먼저 수행 (체크박스 등 살리기 위해)
-        for child in self.threshold_frame.winfo_children():
-            for sub in child.winfo_children():
-                sub.configure(state=tk.NORMAL)
-
-        # 3. 범위 검색 체크 여부에 따라 교차 비활성화
-        if self.check_range_search.get():
-            # 범위 검색 모드: 단일 슬라이더 비활성화
-            for child in self.single_threshold_frame.winfo_children():
-                child.configure(state=tk.DISABLED)
-            # 범위 입력 활성화
-            for child in self.range_frame.winfo_children():
+    def toggle_ui_state(self):
+        # 1. 태그 UI 상태
+        if self.check_tag_search.get():
+            for child in self.tag_frame.winfo_children():
                 child.configure(state=tk.NORMAL)
         else:
-            # 단일 모드: 슬라이더 활성화
-            for child in self.single_threshold_frame.winfo_children():
-                child.configure(state=tk.NORMAL)
-            # 범위 입력 비활성화
-            for child in self.range_frame.winfo_children():
+            for child in self.tag_frame.winfo_children():
                 child.configure(state=tk.DISABLED)
+
+        # 2. dHash UI 상태
+        if not self.check_dhash.get():
+            for child in self.threshold_frame.winfo_children():
+                for sub in child.winfo_children():
+                    sub.configure(state=tk.DISABLED)
+        else:
+            for child in self.threshold_frame.winfo_children():
+                for sub in child.winfo_children():
+                    sub.configure(state=tk.NORMAL)
+            
+            # dHash 범위 검색 상태에 따른 교차 비활성화
+            if self.check_range_search.get():
+                for child in self.single_threshold_frame.winfo_children():
+                    child.configure(state=tk.DISABLED)
+                for child in self.range_frame.winfo_children():
+                    child.configure(state=tk.NORMAL)
+            else:
+                for child in self.single_threshold_frame.winfo_children():
+                    child.configure(state=tk.NORMAL)
+                for child in self.range_frame.winfo_children():
+                    child.configure(state=tk.DISABLED)
 
     def on_preview_resize(self, event):
         """미리보기 영역 크기가 변할 때 이미지 재출력"""
@@ -214,7 +240,7 @@ class DuplicateFinderGUI:
             messagebox.showwarning("경고", "먼저 상단에서 작업 폴더를 선택해주세요.")
             return
         
-        if not self.check_md5.get() and not self.check_dhash.get():
+        if not any([self.check_md5.get(), self.check_dhash.get(), self.check_tag_search.get()]):
             messagebox.showwarning("경고", "최소한 하나의 검색 옵션을 선택해주세요.")
             return
             
@@ -259,8 +285,10 @@ class DuplicateFinderGUI:
                 folder,
                 check_md5=self.check_md5.get(),
                 check_dhash=self.check_dhash.get(),
+                check_tag=self.check_tag_search.get(),
                 match_resolution=self.match_resolution.get(),
                 similarity_threshold=self.similarity_threshold.get(),
+                tag_similarity_threshold=self.tag_similarity_threshold.get(),
                 progress_callback=self.update_progress,
                 max_workers=max_workers,
                 range_threshold=range_threshold
@@ -402,10 +430,25 @@ class DuplicateFinderGUI:
         if not self.selected_file_path:
             return
             
-        if messagebox.askyesno("삭제 확인", f"정말 삭제하시겠습니까?\n{self.selected_file_path}"):
+        file_path = self.selected_file_path
+        txt_path = os.path.splitext(file_path)[0] + '.txt'
+        has_txt = self.delete_pair_txt.get() and os.path.exists(txt_path)
+        
+        msg = f"정말 삭제하시겠습니까?\n이미지: {os.path.basename(file_path)}"
+        if has_txt:
+            msg += f"\n캡션: {os.path.basename(txt_path)}"
+            
+        if messagebox.askyesno("삭제 확인", msg):
             try:
-                os.remove(self.selected_file_path)
-                messagebox.showinfo("완료", "삭제되었습니다.")
+                os.remove(file_path)
+                deleted_msg = "이미지 삭제됨"
+                
+                if has_txt:
+                    os.remove(txt_path)
+                    deleted_msg += ", 캡션 삭제됨"
+                
+                messagebox.showinfo("완료", deleted_msg)
+                
                 selected = self.tree.selection()[0]
                 self.tree.delete(selected)
                 self.selected_file_path = None
@@ -421,8 +464,17 @@ class DuplicateFinderGUI:
         dest = filedialog.askdirectory(title="이동할 폴더 선택")
         if dest:
             try:
-                shutil.move(self.selected_file_path, os.path.join(dest, os.path.basename(self.selected_file_path)))
-                messagebox.showinfo("완료", "이동되었습니다.")
+                file_path = self.selected_file_path
+                txt_path = os.path.splitext(file_path)[0] + '.txt'
+                
+                shutil.move(file_path, os.path.join(dest, os.path.basename(file_path)))
+                moved_msg = "이미지 이동됨"
+                
+                if self.delete_pair_txt.get() and os.path.exists(txt_path):
+                    shutil.move(txt_path, os.path.join(dest, os.path.basename(txt_path)))
+                    moved_msg += ", 캡션 이동됨"
+
+                messagebox.showinfo("완료", moved_msg)
                 selected = self.tree.selection()[0]
                 self.tree.delete(selected)
                 self.selected_file_path = None
