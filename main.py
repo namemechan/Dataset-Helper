@@ -46,6 +46,21 @@ class DatasetOrganizerGUI:
         self.use_delete = tk.BooleanVar(value=False)
         self.use_conditional_delete = tk.BooleanVar(value=False) # 조건부 삭제
 
+        # 인접 태그 수정 변수
+        self.use_neighbor_modify = tk.BooleanVar(value=False)
+        self.neighbor_target = tk.StringVar()
+        self.neighbor_pos = tk.StringVar(value="after")
+        self.neighbor_add_pos = tk.StringVar(value="prefix")
+        self.neighbor_text = tk.StringVar()
+
+        # CSV 기반 특수 처리 변수
+        self.use_csv_process = tk.BooleanVar(value=False)
+        self.csv_file_path = tk.StringVar()
+        self.csv_category = tk.StringVar(value="0")
+        self.csv_mode = tk.StringVar(value="add")
+        self.csv_add_pos = tk.StringVar(value="prefix")
+        self.csv_input_text = tk.StringVar()
+
         self.use_add = tk.BooleanVar(value=False)
         self.use_conditional_add = tk.BooleanVar(value=False) # 조건부 추가
         
@@ -270,6 +285,95 @@ class DatasetOrganizerGUI:
         self.replace_with_entry = ttk.Entry(group_replace, width=20)
         self.replace_with_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
+        # --- 옵션 3.5: 인접 태그 수정 (New) ---
+        group_neighbor = ttk.LabelFrame(container, text="인접 태그 접두/미사 추가", padding="5")
+        group_neighbor.pack(fill=tk.X, pady=5)
+        
+        frame_nb_top = ttk.Frame(group_neighbor)
+        frame_nb_top.pack(fill=tk.X, pady=2)
+        ttk.Checkbutton(frame_nb_top, text="사용", variable=self.use_neighbor_modify).pack(side=tk.LEFT)
+        
+        ttk.Label(frame_nb_top, text="기준 태그:").pack(side=tk.LEFT, padx=(10, 5))
+        self.neighbor_target_entry = ttk.Entry(frame_nb_top, textvariable=self.neighbor_target, width=15)
+        self.neighbor_target_entry.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(frame_nb_top, text="추가할 텍스트:").pack(side=tk.LEFT, padx=(10, 5))
+        self.neighbor_text_entry = ttk.Entry(frame_nb_top, textvariable=self.neighbor_text, width=15)
+        self.neighbor_text_entry.pack(side=tk.LEFT, padx=5)
+
+        frame_nb_bot = ttk.Frame(group_neighbor)
+        frame_nb_bot.pack(fill=tk.X, pady=2)
+        
+        ttk.Label(frame_nb_bot, text="대상 위치:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Radiobutton(frame_nb_bot, text="앞 태그", variable=self.neighbor_pos, value="before").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(frame_nb_bot, text="뒤 태그", variable=self.neighbor_pos, value="after").pack(side=tk.LEFT, padx=5)
+        
+        ttk.Separator(frame_nb_bot, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=15)
+        
+        ttk.Label(frame_nb_bot, text="추가 방식:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Radiobutton(frame_nb_bot, text="접두(앞에)", variable=self.neighbor_add_pos, value="prefix").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(frame_nb_bot, text="접미(뒤에)", variable=self.neighbor_add_pos, value="suffix").pack(side=tk.LEFT, padx=5)
+        
+        # --- 옵션 3.7: CSV 기반 특수 처리 (New) ---
+        group_csv = ttk.LabelFrame(container, text="CSV 기반 특수 처리", padding="5")
+        group_csv.pack(fill=tk.X, pady=5)
+        
+        # 행 1: 사용 여부 및 파일 선택
+        frame_csv_file = ttk.Frame(group_csv)
+        frame_csv_file.pack(fill=tk.X, pady=2)
+        ttk.Checkbutton(frame_csv_file, text="사용", variable=self.use_csv_process).pack(side=tk.LEFT)
+        ttk.Label(frame_csv_file, text="CSV 파일:").pack(side=tk.LEFT, padx=(10, 5))
+        ttk.Entry(frame_csv_file, textvariable=self.csv_file_path, width=40).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Button(frame_csv_file, text="파일 선택", command=self.select_csv_file).pack(side=tk.LEFT)
+        
+        # 행 2: 카테고리 및 작업 모드
+        frame_csv_opts = ttk.Frame(group_csv)
+        frame_csv_opts.pack(fill=tk.X, pady=2)
+        
+        ttk.Label(frame_csv_opts, text="태그 종류(숫자):").pack(side=tk.LEFT)
+        ttk.Spinbox(frame_csv_opts, from_=0, to=10, textvariable=self.csv_category, width=5).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Separator(frame_csv_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=15)
+        
+        ttk.Label(frame_csv_opts, text="작업:").pack(side=tk.LEFT)
+        ttk.Radiobutton(frame_csv_opts, text="추가", variable=self.csv_mode, value="add").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(frame_csv_opts, text="치환", variable=self.csv_mode, value="replace").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(frame_csv_opts, text="삭제", variable=self.csv_mode, value="delete").pack(side=tk.LEFT, padx=5)
+        
+        # 행 3: 추가 설정 및 입력칸
+        self.frame_csv_input = ttk.Frame(group_csv)
+        self.frame_csv_input.pack(fill=tk.X, pady=2)
+        
+        self.label_csv_pos = ttk.Label(self.frame_csv_input, text="추가 위치:")
+        self.label_csv_pos.pack(side=tk.LEFT)
+        self.rb_csv_pre = ttk.Radiobutton(self.frame_csv_input, text="앞(접두)", variable=self.csv_add_pos, value="prefix")
+        self.rb_csv_pre.pack(side=tk.LEFT, padx=5)
+        self.rb_csv_suf = ttk.Radiobutton(self.frame_csv_input, text="뒤(접미)", variable=self.csv_add_pos, value="suffix")
+        self.rb_csv_suf.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(self.frame_csv_input, text="입력 문자:").pack(side=tk.LEFT, padx=(15, 5))
+        self.csv_text_entry = ttk.Entry(self.frame_csv_input, textvariable=self.csv_input_text)
+        self.csv_text_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        # 모드 변경 시 UI 활성/비활성 제어
+        def on_csv_mode_change(*args):
+            mode = self.csv_mode.get()
+            if mode == 'delete':
+                self.csv_text_entry.config(state=tk.DISABLED)
+                self.rb_csv_pre.config(state=tk.DISABLED)
+                self.rb_csv_suf.config(state=tk.DISABLED)
+            elif mode == 'replace':
+                self.csv_text_entry.config(state=tk.NORMAL)
+                self.rb_csv_pre.config(state=tk.DISABLED)
+                self.rb_csv_suf.config(state=tk.DISABLED)
+            else: # add
+                self.csv_text_entry.config(state=tk.NORMAL)
+                self.rb_csv_pre.config(state=tk.NORMAL)
+                self.rb_csv_suf.config(state=tk.NORMAL)
+        
+        self.csv_mode.trace_add("write", on_csv_mode_change)
+        on_csv_mode_change() # 초기화
+
         # --- 옵션 4: 태그 삭제 ---
         group_delete = ttk.LabelFrame(container, text="태그 삭제 (쉼표 자동 정리 - 연속 태그 가능)", padding="5")
         group_delete.pack(fill=tk.X, pady=5)
@@ -327,7 +431,38 @@ class DatasetOrganizerGUI:
             self.folder_path = folder
             self.folder_path_var.set(folder)
             self.folder_label.config(text=folder)
-    
+
+    def select_csv_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        if file_path:
+            self.csv_file_path.set(file_path)
+
+    def load_csv_tags(self) -> set:
+        """CSV 파일을 읽어 선택된 카테고리에 해당하는 태그 세트 반환"""
+        csv_path = self.csv_file_path.get()
+        if not csv_path or not os.path.exists(csv_path):
+            return set()
+            
+        category_id = self.csv_category.get().strip()
+        tags_set = set()
+        
+        import csv
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) >= 2:
+                        # 첫 번째 열: 태그, 두 번째 열: 카테고리
+                        # 정규화: 소문자화 및 언더바를 공백으로 치환하여 비교 효율 증대
+                        tag = row[0].strip().lower().replace('_', ' ')
+                        cat = row[1].strip()
+                        if cat == category_id:
+                            tags_set.add(tag)
+        except Exception as e:
+            print(f"CSV 로드 오류: {e}")
+            
+        return tags_set
+
     def check_folder(self):
         if not self.folder_path:
             messagebox.showwarning("경고", "먼저 작업 폴더를 선택하세요.")
@@ -513,6 +648,22 @@ class DatasetOrganizerGUI:
             'replace_find': self.replace_find_entry.get().strip(),
             'replace_with': self.replace_with_entry.get().strip(),
             
+            # 인접 태그 수정 옵션
+            'use_neighbor_modify': self.use_neighbor_modify.get(),
+            'neighbor_target': self.neighbor_target.get(),
+            'neighbor_pos': self.neighbor_pos.get(),
+            'neighbor_add_pos': self.neighbor_add_pos.get(),
+            'neighbor_text': self.neighbor_text.get(),
+            
+            # CSV 기반 특수 처리 옵션
+            'use_csv_process': self.use_csv_process.get(),
+            'csv_file_path': self.csv_file_path.get(),
+            'csv_category': self.csv_category.get(),
+            'csv_mode': self.csv_mode.get(),
+            'csv_add_pos': self.csv_add_pos.get(),
+            'csv_input_text': self.csv_input_text.get(),
+            'csv_tags_set': self.load_csv_tags() if self.use_csv_process.get() else set(),
+
             # 태그 삭제 옵션
             'use_delete': self.use_delete.get(),
             'delete_tags': [t.strip() for t in self.delete_tags_entry.get().split('|') if t.strip()],
@@ -537,7 +688,8 @@ class DatasetOrganizerGUI:
         
         # 옵션 유효성 검사
         if not any([options['use_move_person'], options['use_move_solo'], options['use_move_custom'], 
-                   options['use_replace'], options['use_delete'], options['use_add'], options['use_missing_tag']]):
+                   options['use_replace'], options['use_delete'], options['use_add'], options['use_missing_tag'],
+                   options['use_neighbor_modify'], options['use_csv_process']]):
             messagebox.showwarning("경고", "최소한 하나의 기능을 선택해주세요.")
             return
             
@@ -554,12 +706,15 @@ class DatasetOrganizerGUI:
         
         # 옵션 유효성 검사
         if not any([options['use_move_person'], options['use_move_solo'], options['use_move_custom'], 
-                   options['use_replace'], options['use_delete'], options['use_add'], options['use_missing_tag']]):
+                   options['use_replace'], options['use_delete'], options['use_add'], options['use_missing_tag'],
+                   options['use_neighbor_modify'], options['use_csv_process']]):
             messagebox.showwarning("경고", "최소한 하나의 기능을 선택해주세요.")
             return
 
         confirm_msg = "선택한 옵션으로 태그 처리를 진행하시겠습니까?\n\n"
         if options['use_replace']: confirm_msg += "- 태그 치환\n"
+        if options['use_neighbor_modify']: confirm_msg += f"- 인접 태그 수정 (기준: {options['neighbor_target']})\n"
+        if options['use_csv_process']: confirm_msg += f"- CSV 기반 특수 처리 (종류: {options['csv_category']})\n"
         if options['use_delete']: 
             confirm_msg += "- 태그 삭제"
             if options['use_conditional_delete']: confirm_msg += " (조건부)"
@@ -621,6 +776,23 @@ class DatasetOrganizerGUI:
             "replace_find_entry": self.replace_find_entry.get(),
             "replace_with_entry": self.replace_with_entry.get(),
             
+            "use_neighbor_modify": self.use_neighbor_modify.get(),
+            "neighbor_target": self.neighbor_target.get(),
+            "neighbor_pos": self.neighbor_pos.get(),
+            "neighbor_add_pos": self.neighbor_add_pos.get(),
+            "neighbor_text": self.neighbor_text.get(),
+            
+            "use_csv_process": self.use_csv_process.get(),
+            "csv_file_path": self.csv_file_path.get(),
+            "csv_category": self.csv_category.get(),
+            "csv_mode": self.csv_mode.get(),
+            "csv_add_pos": self.csv_add_pos.get(),
+            "csv_input_text": self.csv_input_text.get(),
+
+            # 중복 찾기 탭 설정
+            "dup_use_independent": self.duplicate_gui.use_independent_path.get(),
+            "dup_independent_path": self.duplicate_gui.independent_folder_path.get(),
+
             "use_delete": self.use_delete.get(),
             "delete_tags_entry": self.delete_tags_entry.get(),
             "use_conditional_delete": self.use_conditional_delete.get(),
@@ -698,6 +870,25 @@ class DatasetOrganizerGUI:
                 self.replace_with_entry.delete(0, tk.END)
                 self.replace_with_entry.insert(0, settings["replace_with_entry"])
             
+            if "use_neighbor_modify" in settings: self.use_neighbor_modify.set(settings["use_neighbor_modify"])
+            if "neighbor_target" in settings: self.neighbor_target.set(settings["neighbor_target"])
+            if "neighbor_pos" in settings: self.neighbor_pos.set(settings["neighbor_pos"])
+            if "neighbor_add_pos" in settings: self.neighbor_add_pos.set(settings["neighbor_add_pos"])
+            if "neighbor_text" in settings: self.neighbor_text.set(settings["neighbor_text"])
+            
+            if "use_csv_process" in settings: self.use_csv_process.set(settings["use_csv_process"])
+            if "csv_file_path" in settings: self.csv_file_path.set(settings["csv_file_path"])
+            if "csv_category" in settings: self.csv_category.set(settings["csv_category"])
+            if "csv_mode" in settings: self.csv_mode.set(settings["csv_mode"])
+            if "csv_add_pos" in settings: self.csv_add_pos.set(settings["csv_add_pos"])
+            if "csv_input_text" in settings: self.csv_input_text.set(settings["csv_input_text"])
+
+            if "dup_use_independent" in settings:
+                self.duplicate_gui.use_independent_path.set(settings["dup_use_independent"])
+                self.duplicate_gui.toggle_ui_state()
+            if "dup_independent_path" in settings:
+                self.duplicate_gui.independent_folder_path.set(settings["dup_independent_path"])
+
             if "use_delete" in settings: self.use_delete.set(settings["use_delete"])
             if "delete_tags_entry" in settings:
                 self.delete_tags_entry.delete(0, tk.END)

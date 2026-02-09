@@ -20,6 +20,9 @@ class DuplicateFinderGUI:
         self.core_var = core_var # 코어 수 설정 변수
         
         # UI 변수
+        self.use_independent_path = tk.BooleanVar(value=False)
+        self.independent_folder_path = tk.StringVar()
+        
         self.check_md5 = tk.BooleanVar(value=True)
         self.check_dhash = tk.BooleanVar(value=False)
         self.check_tag_search = tk.BooleanVar(value=False) # 태그 검색
@@ -58,6 +61,22 @@ class DuplicateFinderGUI:
         # --- 1. 왼쪽 패널 (설정) ---
         left_frame = ttk.Frame(paned_window)
         paned_window.add(left_frame, weight=1)
+        
+        # 그룹: 독립 경로 설정 (New)
+        path_group = ttk.LabelFrame(left_frame, text="경로 설정", padding="10")
+        path_group.pack(fill=tk.X, pady=5)
+        
+        ttk.Checkbutton(path_group, text="독립적인 경로 사용", 
+                       variable=self.use_independent_path, 
+                       command=self.toggle_ui_state).pack(anchor=tk.W)
+        
+        self.independent_path_frame = ttk.Frame(path_group)
+        self.independent_path_frame.pack(fill=tk.X, pady=5)
+        
+        self.independent_entry = ttk.Entry(self.independent_path_frame, textvariable=self.independent_folder_path)
+        self.independent_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.independent_btn = ttk.Button(self.independent_path_frame, text="선택", width=5, command=self.select_independent_folder)
+        self.independent_btn.pack(side=tk.LEFT)
         
         # 그룹: 검색 설정
         opt_group = ttk.LabelFrame(left_frame, text="검색 옵션 (중복 선택 가능)", padding="10")
@@ -199,6 +218,14 @@ class DuplicateFinderGUI:
         self.toggle_ui_state() # 초기 상태 설정
 
     def toggle_ui_state(self):
+        # 0. 독립 경로 UI 상태
+        if self.use_independent_path.get():
+            self.independent_entry.config(state=tk.NORMAL)
+            self.independent_btn.config(state=tk.NORMAL)
+        else:
+            self.independent_entry.config(state=tk.DISABLED)
+            self.independent_btn.config(state=tk.DISABLED)
+
         # 1. 태그 UI 상태
         if self.check_tag_search.get():
             for child in self.tag_frame.winfo_children():
@@ -234,10 +261,23 @@ class DuplicateFinderGUI:
         if self.selected_file_path:
             self.show_preview(self.selected_file_path)
 
+    def select_independent_folder(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self.independent_folder_path.set(folder)
+
     def start_search(self):
-        folder = self.folder_path_var.get()
+        # 경로 결정: 독립 경로 사용 여부에 따라 분기
+        if self.use_independent_path.get():
+            folder = self.independent_folder_path.get()
+            if not folder:
+                messagebox.showwarning("경고", "독립 경로 폴더를 선택해주세요.")
+                return
+        else:
+            folder = self.folder_path_var.get()
+            
         if not folder or not os.path.exists(folder):
-            messagebox.showwarning("경고", "먼저 상단에서 작업 폴더를 선택해주세요.")
+            messagebox.showwarning("경고", "작업 폴더가 올바르지 않습니다.")
             return
         
         if not any([self.check_md5.get(), self.check_dhash.get(), self.check_tag_search.get()]):

@@ -185,6 +185,68 @@ class TagProcessor:
                 if replaced_count > 0:
                     changes.append(f"치환: '{find_str}' → '{replace_str}' ({replaced_count}건)")
 
+        # 1.5 인접 태그 수정 (New)
+        if options.get('use_neighbor_modify') and options.get('neighbor_target'):
+            target_tag = options['neighbor_target'].strip()
+            neighbor_pos = options.get('neighbor_pos', 'after') # 'before' or 'after'
+            add_pos = options.get('neighbor_add_pos', 'prefix') # 'prefix' or 'suffix'
+            add_text = options.get('neighbor_text', '')
+            
+            if target_tag and add_text:
+                new_tags = tags[:]
+                modified_indices = set()
+                
+                # 타겟 태그의 모든 위치 찾기
+                for idx, tag in enumerate(tags):
+                    if tag == target_tag:
+                        # 인접 인덱스 계산
+                        n_idx = idx - 1 if neighbor_pos == 'before' else idx + 1
+                        
+                        if 0 <= n_idx < len(tags):
+                            modified_indices.add(n_idx)
+                
+                # 실제 수정 적용 (뒤에서부터 수정해야 인덱스 혼란 방지 - 여기서는 인덱스 고정이라 상관없지만 습관적 처리)
+                if modified_indices:
+                    for m_idx in sorted(list(modified_indices), reverse=True):
+                        orig_neighbor = tags[m_idx]
+                        if add_pos == 'prefix':
+                            tags[m_idx] = add_text + orig_neighbor
+                        else:
+                            tags[m_idx] = orig_neighbor + add_text
+                    
+                    changes.append(f"인접수정: '{target_tag}'의 {neighbor_pos} 태그에 '{add_text}' {add_pos} 추가")
+
+        # 1.7 CSV 기반 특수 처리 (New)
+        if options.get('use_csv_process') and options.get('csv_tags_set'):
+            csv_tags = options['csv_tags_set']
+            csv_mode = options.get('csv_mode', 'add')
+            csv_input = options.get('csv_input_text', '')
+            csv_add_pos = options.get('csv_add_pos', 'prefix')
+            
+            new_tags_list = []
+            csv_changes_count = 0
+            
+            for tag in tags:
+                # 비교를 위한 정규화 (소문자화 및 언더바->공백)
+                normalized_tag = tag.lower().replace('_', ' ')
+                
+                if normalized_tag in csv_tags:
+                    csv_changes_count += 1
+                    if csv_mode == 'add':
+                        processed_tag = (csv_input + tag) if csv_add_pos == 'prefix' else (tag + csv_input)
+                        new_tags_list.append(processed_tag)
+                    elif csv_mode == 'replace':
+                        new_tags_list.append(csv_input)
+                    elif csv_mode == 'delete':
+                        continue # 추가하지 않음 (삭제)
+                else:
+                    new_tags_list.append(tag)
+            
+            if csv_changes_count > 0:
+                tags = new_tags_list
+                mode_name = "추가" if csv_mode == 'add' else "치환" if csv_mode == 'replace' else "삭제"
+                changes.append(f"CSV처리: {csv_changes_count}개 태그 {mode_name} 완료")
+
         # 2. 태그 삭제
         if options.get('use_delete') and options.get('delete_tags'):
             should_delete = True
