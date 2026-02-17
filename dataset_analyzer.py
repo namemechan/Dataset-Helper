@@ -9,48 +9,86 @@ from collections import defaultdict
 Image.MAX_IMAGE_PIXELS = None
 
 class DatasetAnalyzer:
-    # 버킷 설정 상숫값
-    BUCKET_RESO_STEPS = 64
-    MIN_BUCKET_RESO = 256
-    MAX_BUCKET_RESO = 2048
+    # 버킷 설정 기본값 (UI에서 변경 가능)
+    DEFAULT_STEPS = 64
+    DEFAULT_MIN = 256
+    DEFAULT_MAX = 2048
+
+    @staticmethod
+    def make_buckets(target_res: int, min_res: int, max_res: int, steps: int) -> List[Tuple[int, int]]:
+        """
+        kohya-ss (sd-scripts) 스타일의 버킷 목록 생성 로직.
+        설정된 target_res * target_res 면적을 최대한 유지하면서 64단위 조합을 만듭니다.
+        """
+        target_area = target_res * target_res
+        buckets = set()
+        
+        # 1. 정방형 버킷 추가
+        buckets.add((target_res, target_res))
+        
+        # 2. 가로/세로 조합 생성
+        for w in range(min_res, max_res + 1, steps):
+            # w * h <= target_area 가 되는 최대 h 찾기 (64배수)
+            h = (target_area // w // steps) * steps
+            if h < min_res: h = min_res
+            if h > max_res: h = max_res
+            
+            if h >= min_res:
+                buckets.add((w, h))
+                
+            # 반대 조합도 추가 (h * w)
+            w2 = (target_area // h // steps) * steps
+            if w2 < min_res: w2 = min_res
+            if w2 > max_res: w2 = max_res
+            if w2 >= min_res:
+                buckets.add((w2, h))
+
+        # 중복 제거 및 정렬
+        sorted_buckets = sorted(list(buckets), key=lambda x: x[0] / x[1])
+        return sorted_buckets
 
     @staticmethod
     def get_bucket_size(width: int, height: int, 
                         steps: int = 64, 
                         min_res: int = 256, 
-                        max_res: int = 2048) -> Tuple[int, int]:
-        w, h = width, height
+                        max_res: int = 2048,
+                        target_res: int = 1024) -> Tuple[int, int]:
+        """
+        이미지 해상도에 대해 가장 가까운 비율의 버킷을 반환합니다.
+        """
+        # 버킷 목록 생성 (성능을 위해 실제로는 호출 측에서 미리 생성해 전달하는 것이 좋으나, 
+        # 여기서는 호환성을 위해 내부에서 생성하거나 캐싱 로직을 고려합니다.)
+        buckets = DatasetAnalyzer.make_buckets(target_res, min_res, max_res, steps)
         
-        # 1. 최대 해상도 제한 및 비율 유지 축소
-        if w > max_res or h > max_res:
-            scale = min(max_res / w, max_res / h)
-            w = max(min_res, int(w * scale))
-            h = max(min_res, int(h * scale))
-
         orig_ratio = width / height
-        best_w, best_h = w, h
+        best_bucket = buckets[0]
         min_ratio_diff = float('inf')
 
-        w_near = [ (w // steps) * steps,
-                   ((w // steps) + 1) * steps ]
-        h_near = [ (h // steps) * steps,
-                   ((h // steps) + 1) * steps ]
-        
-        w_candidates = [v for v in w_near if min_res <= v <= max_res]
-        h_candidates = [v for v in h_near if min_res <= v <= max_res]
-        
-        if not w_candidates: w_candidates = [max_res if w > max_res else min_res]
-        if not h_candidates: h_candidates = [max_res if h > max_res else min_res]
-
-        for cw in w_candidates:
-            for ch in h_candidates:
-                ratio = cw / ch
-                diff = abs(orig_ratio - ratio)
-                if diff < min_ratio_diff:
-                    min_ratio_diff = diff
-                    best_w, best_h = cw, ch
+        for bw, bh in buckets:
+            ratio = bw / bh
+            diff = abs(orig_ratio - ratio)
+            if diff < min_ratio_diff:
+                min_ratio_diff = diff
+                best_bucket = (bw, bh)
                     
-        return best_w, best_h
+        return best_bucket
+
+    @staticmethod
+    def rebucketize(dims: List[Tuple[int, int]], steps: int, min_res: int, max_res: int, target_res: int = 1024) -> Dict[str, int]:
+        """이미지 해상도 리스트를 받아 새로운 설정으로 버킷 분포를 다시 계산합니다."""
+        new_buckets = defaultdict(int)
+        # 버킷 목록 미리 생성
+        bucket_list = DatasetAnalyzer.make_buckets(target_res, min_res, max_res, steps)
+        bucket_ars = [bw / bh for bw, bh in bucket_list]
+        
+        for w, h in dims:
+            orig_ar = w / h
+            # 가장 가까운 비율 찾기
+            diffs = [abs(orig_ar - b_ar) for b_ar in bucket_ars]
+            best_idx = diffs.index(min(diffs))
+            bw, bh = bucket_list[best_idx]
+            new_buckets[f"{bw}x{bh}"] += 1
+        return dict(new_buckets)
 
     @staticmethod
     def analyze_folder_worker(folder_info: Dict) -> Dict:
@@ -59,10 +97,15 @@ class DatasetAnalyzer:
         steps = folder_info.get('bucket_steps', 64)
         min_res = folder_info.get('bucket_min', 256)
         max_res = folder_info.get('bucket_max', 2048)
+        target_res = folder_info.get('target_res', 1024)
+        
+        # 버킷 목록 생성
+        bucket_list = DatasetAnalyzer.make_buckets(target_res, min_res, max_res, steps)
+        bucket_ars = [bw / bh for bw, bh in bucket_list]
         
         images_in_folder = []
         buckets = defaultdict(int)
-        image_dims = [] # 이미지 원본 차원 저장용
+        image_dims = []
         
         try:
             for entry in os.scandir(path):
@@ -78,8 +121,14 @@ class DatasetAnalyzer:
                             with Image.open(file_path) as img:
                                 w, h = img.size
                                 image_dims.append((w, h))
-                                bucket = DatasetAnalyzer.get_bucket_size(w, h, steps, min_res, max_res)
-                                buckets[f"{bucket[0]}x{bucket[1]}"] += 1
+                                
+                                # 가장 가까운 비율 버킷 찾기
+                                orig_ar = w / h
+                                diffs = [abs(orig_ar - b_ar) for b_ar in bucket_ars]
+                                best_idx = diffs.index(min(diffs))
+                                bw, bh = bucket_list[best_idx]
+                                
+                                buckets[f"{bw}x{bh}"] += 1
                                 images_in_folder.append(file_path)
                         except:
                             continue
@@ -93,15 +142,6 @@ class DatasetAnalyzer:
             'buckets': dict(buckets),
             'image_dims': image_dims
         }
-
-    @staticmethod
-    def rebucketize(dims: List[Tuple[int, int]], steps: int, min_res: int, max_res: int) -> Dict[str, int]:
-        """이미지 해상도 리스트를 받아 새로운 설정으로 버킷 분포를 다시 계산합니다."""
-        new_buckets = defaultdict(int)
-        for w, h in dims:
-            bw, bh = DatasetAnalyzer.get_bucket_size(w, h, steps, min_res, max_res)
-            new_buckets[f"{bw}x{bh}"] += 1
-        return dict(new_buckets)
 
     @staticmethod
     def scan_directories(root_path: str, recursive: bool, include_empty: bool, include_untagged: bool, 

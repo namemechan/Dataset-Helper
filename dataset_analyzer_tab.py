@@ -23,6 +23,7 @@ class DatasetAnalyzerGUI:
         
         # 버킷 설정 변수
         self.use_custom_buckets = tk.BooleanVar(value=False)
+        self.target_reso = tk.IntVar(value=1024) # kohya-ss의 --resolution 개념
         self.bucket_reso_steps = tk.IntVar(value=64)
         self.min_bucket_reso = tk.IntVar(value=256)
         self.max_bucket_reso = tk.IntVar(value=2048)
@@ -66,25 +67,30 @@ class DatasetAnalyzerGUI:
         ttk.Checkbutton(opts_frame, text="빈 폴더 포함 (최하위 한정)", variable=self.include_empty).pack(side=tk.LEFT, padx=15)
         ttk.Checkbutton(opts_frame, text="미 태깅 파일 포함", variable=self.include_untagged).pack(side=tk.LEFT, padx=15)
         
-        # 1-2-1. 버킷 설정 옵션
-        buckets_opts_frame = ttk.Frame(settings_frame)
-        buckets_opts_frame.pack(fill=tk.X, pady=5)
+        # 1-2-1. 버킷 상세 설정
+        buckets_frame = ttk.LabelFrame(settings_frame, text="학습 환경 설정", padding="5")
+        buckets_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Checkbutton(buckets_opts_frame, text="버킷 사이즈 설정", variable=self.use_custom_buckets, command=self.toggle_bucket_ui).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Checkbutton(buckets_frame, text="사용자 정의 버킷", variable=self.use_custom_buckets, command=self.toggle_bucket_ui).pack(side=tk.LEFT, padx=(0, 10))
         
-        self.bucket_steps_label = ttk.Label(buckets_opts_frame, text="버킷 크기 단위:")
+        self.target_reso_label = ttk.Label(buckets_frame, text="기준 해상도(--resolution):")
+        self.target_reso_label.pack(side=tk.LEFT, padx=2)
+        self.target_reso_entry = ttk.Spinbox(buckets_frame, from_=256, to=4096, increment=64, textvariable=self.target_reso, width=6)
+        self.target_reso_entry.pack(side=tk.LEFT, padx=5)
+
+        self.bucket_steps_label = ttk.Label(buckets_frame, text="단위(steps):")
         self.bucket_steps_label.pack(side=tk.LEFT, padx=2)
-        self.bucket_steps_entry = ttk.Spinbox(buckets_opts_frame, from_=8, to=1024, increment=8, textvariable=self.bucket_reso_steps, width=5)
+        self.bucket_steps_entry = ttk.Spinbox(buckets_frame, from_=8, to=1024, increment=8, textvariable=self.bucket_reso_steps, width=5)
         self.bucket_steps_entry.pack(side=tk.LEFT, padx=5)
         
-        self.min_bucket_label = ttk.Label(buckets_opts_frame, text="최소 버킷 크기:")
+        self.min_bucket_label = ttk.Label(buckets_frame, text="최소:")
         self.min_bucket_label.pack(side=tk.LEFT, padx=2)
-        self.min_bucket_entry = ttk.Spinbox(buckets_opts_frame, from_=64, to=4096, increment=64, textvariable=self.min_bucket_reso, width=6)
+        self.min_bucket_entry = ttk.Spinbox(buckets_frame, from_=64, to=4096, increment=64, textvariable=self.min_bucket_reso, width=6)
         self.min_bucket_entry.pack(side=tk.LEFT, padx=5)
         
-        self.max_bucket_label = ttk.Label(buckets_opts_frame, text="최대 버킷 크기:")
+        self.max_bucket_label = ttk.Label(buckets_frame, text="최대:")
         self.max_bucket_label.pack(side=tk.LEFT, padx=2)
-        self.max_bucket_entry = ttk.Spinbox(buckets_opts_frame, from_=64, to=8192, increment=64, textvariable=self.max_bucket_reso, width=6)
+        self.max_bucket_entry = ttk.Spinbox(buckets_frame, from_=64, to=8192, increment=64, textvariable=self.max_bucket_reso, width=6)
         self.max_bucket_entry.pack(side=tk.LEFT, padx=5)
         
         # 1-3. 학습 파라미터
@@ -185,12 +191,14 @@ class DatasetAnalyzerGUI:
 
     def toggle_bucket_ui(self):
         state = tk.NORMAL if self.use_custom_buckets.get() else tk.DISABLED
+        self.target_reso_entry.config(state=state)
         self.bucket_steps_entry.config(state=state)
         self.min_bucket_entry.config(state=state)
         self.max_bucket_entry.config(state=state)
         
         # 라벨 색상 변경으로 시인성 확보 (선택사항)
         label_color = "black" if self.use_custom_buckets.get() else "gray"
+        self.target_reso_label.config(foreground=label_color)
         self.bucket_steps_label.config(foreground=label_color)
         self.min_bucket_label.config(foreground=label_color)
         self.max_bucket_label.config(foreground=label_color)
@@ -213,6 +221,7 @@ class DatasetAnalyzerGUI:
             bucket_settings = None
             if self.use_custom_buckets.get():
                 bucket_settings = {
+                    'target_res': self.target_reso.get(),
                     'bucket_steps': self.bucket_reso_steps.get(),
                     'bucket_min': self.min_bucket_reso.get(),
                     'bucket_max': self.max_bucket_reso.get()
@@ -275,7 +284,7 @@ class DatasetAnalyzerGUI:
         avg_waste_rate = (total_waste_slots / total_slots * 100) if total_slots > 0 else 0
         summary_text = (f"최종 배치(배치*그라디언트): {batch_total} | 총 폴더: {total_folders}개 | 총 데이터셋: {total_data}개 | 폴더당 평균: {self.avg_data:.1f}개\n"
                         f"이론적 스텝 (1에포크): {total_theo_steps_per_epoch:.1f} | 이론적 총 스텝 ({epochs}에포크): {total_theo_steps:.1f}\n"
-                        f"실제 예상 스텝 (1에포크): {total_steps_per_epoch} | 실제 예상 총 스텝 ({epochs}에포크): {total_steps} | 평균 낭비율: {avg_waste_rate:.2f}%")
+                        f"실제 예상 스텝 (1에포크): {total_steps_per_epoch} | 실제 예상 총 스텝 ({epochs}에포크): {total_steps} | 평균 배치 슬롯 낭비율: {avg_waste_rate:.2f}%")
         self.summary_label.config(text=summary_text)
 
     def export_to_csv(self):
@@ -294,12 +303,13 @@ class DatasetAnalyzerGUI:
                 
                 # 버킷 설정 정보 추가
                 if self.use_custom_buckets.get():
-                    writer.writerow(["버킷 설정", "사용자 정의"])
+                    writer.writerow(["버킷 설정", "사용자 정의 (kohya-ss 스타일)"])
+                    writer.writerow(["기준 해상도(Area)", self.target_reso.get()])
                     writer.writerow(["버킷 크기 단위", self.bucket_reso_steps.get()])
                     writer.writerow(["최소 버킷 크기", self.min_bucket_reso.get()])
                     writer.writerow(["최대 버킷 크기", self.max_bucket_reso.get()])
                 else:
-                    writer.writerow(["버킷 설정", "기본값 (64/256/2048)"])
+                    writer.writerow(["버킷 설정", "기본값 (1024 Area / 64 steps)"])
                 
                 writer.writerow([])
                 # 버킷 종류(수) 헤더 추가
@@ -365,11 +375,12 @@ class DatasetAnalyzerGUI:
         
         # 버킷 설정 가져오기
         if self.use_custom_buckets.get():
+            b_target = self.target_reso.get()
             b_steps = self.bucket_reso_steps.get()
             b_min = self.min_bucket_reso.get()
             b_max = self.max_bucket_reso.get()
         else:
-            b_steps, b_min, b_max = 64, 256, 2048
+            b_target, b_steps, b_min, b_max = 1024, 64, 256, 2048
 
         total_data = sum(r['count'] for r in self.results)
         self.avg_data = total_data / len(self.results) if self.results else 0
@@ -377,7 +388,7 @@ class DatasetAnalyzerGUI:
         for r in self.results:
             # 원본 차원 정보가 있으면 현재 설정으로 버킷 재계산
             if 'image_dims' in r and r['image_dims']:
-                r['buckets'] = DatasetAnalyzer.rebucketize(r['image_dims'], b_steps, b_min, b_max)
+                r['buckets'] = DatasetAnalyzer.rebucketize(r['image_dims'], b_steps, b_min, b_max, b_target)
                 
             r['recommend'] = DatasetAnalyzer.calculate_recommend_repeat(r['count'], self.avg_data, batch_total)
             self._recalculate_folder(r)
