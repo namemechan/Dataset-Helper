@@ -121,9 +121,9 @@ class DatasetAnalyzerGUI:
         
         ttk.Separator(btn_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
         
-        ttk.Button(btn_frame, text="리핏 일괄 0", command=lambda: self.set_all_repeats(0)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="리핏 일괄 1", command=lambda: self.set_all_repeats(1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="리핏 일괄 설정", command=self.ask_all_repeats).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="최적 리핏 설정", command=self.set_optimal_repeats).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="리핏 평균화", command=self.set_averaged_repeats).pack(side=tk.LEFT, padx=2)
 
         # 3. 요약 정보 영역
         self.summary_frame = ttk.LabelFrame(container, text="요약 결과", padding="10")
@@ -136,24 +136,26 @@ class DatasetAnalyzerGUI:
         table_frame = ttk.Frame(container, padding="5")
         table_frame.pack(fill=tk.BOTH, expand=True, padx=10)
         
-        cols = ("folder", "count", "buckets", "recommend", "repeat", "waste", "steps")
+        cols = ("folder", "count", "buckets", "recommend", "repeat", "total_ops", "steps", "waste")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=15)
         
         self.tree.heading("folder", text="폴더 이름", command=lambda: self.treeview_sort_column("folder", False))
-        self.tree.heading("count", text="데이터셋 수", command=lambda: self.treeview_sort_column("count", True))
-        self.tree.heading("buckets", text="버킷 분포 (종류)")
+        self.tree.heading("count", text="원본 수", command=lambda: self.treeview_sort_column("count", True))
+        self.tree.heading("buckets", text="버킷(종류)")
         self.tree.heading("recommend", text="추천 리핏")
         self.tree.heading("repeat", text="설정 리핏")
-        self.tree.heading("waste", text="예상 낭비율", command=lambda: self.treeview_sort_column("waste", True))
-        self.tree.heading("steps", text="예상 스텝 (이론/실제)")
+        self.tree.heading("total_ops", text="처리량(이론/실제)")
+        self.tree.heading("steps", text="스텝(이론/실제)")
+        self.tree.heading("waste", text="낭비율", command=lambda: self.treeview_sort_column("waste", True))
         
         self.tree.column("folder", width=180)
-        self.tree.column("count", width=100, anchor=tk.CENTER)
-        self.tree.column("buckets", width=250)
+        self.tree.column("count", width=80, anchor=tk.CENTER)
+        self.tree.column("buckets", width=220)
         self.tree.column("recommend", width=80, anchor=tk.CENTER)
         self.tree.column("repeat", width=80, anchor=tk.CENTER)
-        self.tree.column("waste", width=100, anchor=tk.CENTER)
+        self.tree.column("total_ops", width=150, anchor=tk.CENTER)
         self.tree.column("steps", width=150, anchor=tk.CENTER)
+        self.tree.column("waste", width=80, anchor=tk.CENTER)
         
         tree_scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll.set)
@@ -251,15 +253,23 @@ class DatasetAnalyzerGUI:
 
     def update_table(self):
         self.tree.delete(*self.tree.get_children())
+        batch_total = self.batch_size.get() * self.grad_acc.get()
         for r in self.results:
             marker = "▲" if r['count'] >= self.avg_data else "▼"
             count_str = f"{marker} {r['count']}개"
             bucket_types = len(r['buckets'])
             buckets_str = f"[{bucket_types}종] " + ", ".join([f"{k}:{v}" for k, v in sorted(r['buckets'].items())])
+            
+            # 총 연산량 (이론/실제) 계산
+            theo_ops = r['count'] * r['repeat']
+            actual_ops = r['steps'] * batch_total
+            ops_display = f"{theo_ops} / {actual_ops}"
+            
             steps_display = f"{r['theoretical_steps']:.1f} / {r['steps']}"
+            
             self.tree.insert("", tk.END, values=(
                 r['folder_name'], count_str, buckets_str, r['recommend'], r['repeat'],
-                f"{r['waste_rate']:.2f}%", steps_display
+                ops_display, steps_display, f"{r['waste_rate']:.2f}%"
             ), tags=(r['folder_path'],))
         if self.current_sort[0]: self._apply_sort()
 
@@ -313,13 +323,17 @@ class DatasetAnalyzerGUI:
                 
                 writer.writerow([])
                 # 버킷 종류(수) 헤더 추가
-                writer.writerow(["폴더 이름", "데이터셋 수", "추천 리핏", "설정 리핏", "예상 낭비율(%)", "이론적 스텝", "실제 예상 스텝", "버킷 종류(수)", "버킷 분포 상세", "폴더 경로"])
+                writer.writerow(["폴더 이름", "원본 수", "추천 리핏", "설정 리핏", "처리량(이론)", "처리량(실제)", "이론적 스텝", "스텝(실제)", "낭비율(%)", "버킷 종류(수)", "버킷 분포 상세", "폴더 경로"])
                 for r in self.results:
                     buckets_detail = ", ".join([f"{k}:{v}" for k, v in sorted(r['buckets'].items())])
-                    # 버킷 종류 수(len(r['buckets'])) 데이터 추가
+                    theo_ops = r['count'] * r['repeat']
+                    actual_ops = r['steps'] * batch_total
+                    
                     writer.writerow([
                         r['folder_name'], r['count'], r['recommend'], r['repeat'],
-                        f"{r['waste_rate']:.2f}", r['theoretical_steps'], r['steps'],
+                        theo_ops, actual_ops, 
+                        r['theoretical_steps'], r['steps'],
+                        f"{r['waste_rate']:.2f}",
                         len(r['buckets']), buckets_detail, r['folder_path']
                     ])
             messagebox.showinfo("완료", f"분석 결과가 다음 경로에 저장되었습니다:\n{file_path}")
@@ -329,7 +343,7 @@ class DatasetAnalyzerGUI:
     def on_tree_double_click(self, event):
         item_id = self.tree.identify_row(event.y)
         column = self.tree.identify_column(event.x)
-        if not item_id or column != "#5": return
+        if not item_id or column != "#5": return # 설정 리핏 열
         item_values = self.tree.item(item_id, 'values')
         tags = self.tree.item(item_id, 'tags')
         if not tags: return
@@ -352,6 +366,13 @@ class DatasetAnalyzerGUI:
         r['steps'] = steps
         r['theoretical_steps'] = DatasetAnalyzer.calculate_theoretical_steps(r['count'], r['repeat'], batch_total)
 
+    def ask_all_repeats(self):
+        if not self.results: return
+        import tkinter.simpledialog as sd
+        val = sd.askinteger("리핏 일괄 설정", "모든 폴더에 적용할 리핏 값을 입력하세요:", initialvalue=1, minvalue=0)
+        if val is not None:
+            self.set_all_repeats(val)
+
     def set_all_repeats(self, val):
         if not self.results: return
         for r in self.results:
@@ -366,6 +387,22 @@ class DatasetAnalyzerGUI:
         for r in self.results:
             if r['count'] >= self.avg_data: r['repeat'] = r['recommend']
             else: r['repeat'] = batch_total
+            self._recalculate_folder(r)
+        self.update_table()
+        self.update_summary()
+
+    def set_averaged_repeats(self):
+        if not self.results: return
+        import math
+        for r in self.results:
+            if r['count'] < self.avg_data and r['count'] > 0:
+                # 평균에 도달하기 위해 필요한 리핏 배수 계산
+                target_ratio = self.avg_data / r['count']
+                # math.ceil을 사용하여 평균을 넉넉하게 넘길 수 있는 2의 거듭제곱 찾기
+                power = math.ceil(math.log2(target_ratio))
+                r['repeat'] = int(math.pow(2, max(0, power)))
+            else:
+                r['repeat'] = 1
             self._recalculate_folder(r)
         self.update_table()
         self.update_summary()
