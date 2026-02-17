@@ -12,6 +12,7 @@ from utils import get_paired_files, ScrollableFrame
 
 from image_converter_tab import ImageConverterGUI
 from duplicate_finder_tab import DuplicateFinderGUI
+from dataset_analyzer_tab import DatasetAnalyzerGUI
 from app_logger import logger
 import os
 import sys
@@ -116,6 +117,9 @@ class DatasetOrganizerGUI:
 
         # 탭 5: 중복/유사 이미지 찾기
         self.create_duplicate_tab(notebook)
+
+        # 탭 6: 데이터셋 분석 (New)
+        self.create_analyzer_tab(notebook)
     
     def create_rename_tab(self, notebook):
         tab_frame = ttk.Frame(notebook)
@@ -424,6 +428,11 @@ class DatasetOrganizerGUI:
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="중복/유사 이미지")
         self.duplicate_gui = DuplicateFinderGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
+
+    def create_analyzer_tab(self, notebook):
+        frame = ttk.Frame(notebook)
+        notebook.add(frame, text="데이터셋 분석")
+        self.analyzer_gui = DatasetAnalyzerGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -793,6 +802,16 @@ class DatasetOrganizerGUI:
             "dup_use_independent": self.duplicate_gui.use_independent_path.get(),
             "dup_independent_path": self.duplicate_gui.independent_folder_path.get(),
 
+            # 데이터셋 분석 탭 설정
+            "ana_use_independent": self.analyzer_gui.use_independent_path.get(),
+            "ana_independent_path": self.analyzer_gui.independent_folder_path.get(),
+            "ana_recursive": self.analyzer_gui.recursive.get(),
+            "ana_include_empty": self.analyzer_gui.include_empty.get(),
+            "ana_include_untagged": self.analyzer_gui.include_untagged.get(),
+            "ana_batch": self.analyzer_gui.batch_size.get(),
+            "ana_grad": self.analyzer_gui.grad_acc.get(),
+            "ana_epochs": self.analyzer_gui.epochs.get(),
+
             "use_delete": self.use_delete.get(),
             "delete_tags_entry": self.delete_tags_entry.get(),
             "use_conditional_delete": self.use_conditional_delete.get(),
@@ -889,6 +908,19 @@ class DatasetOrganizerGUI:
             if "dup_independent_path" in settings:
                 self.duplicate_gui.independent_folder_path.set(settings["dup_independent_path"])
 
+            # 데이터셋 분석 탭 로드
+            if "ana_use_independent" in settings:
+                self.analyzer_gui.use_independent_path.set(settings["ana_use_independent"])
+                self.analyzer_gui.toggle_path_ui()
+            if "ana_independent_path" in settings:
+                self.analyzer_gui.independent_folder_path.set(settings["ana_independent_path"])
+            if "ana_recursive" in settings: self.analyzer_gui.recursive.set(settings["ana_recursive"])
+            if "ana_include_empty" in settings: self.analyzer_gui.include_empty.set(settings["ana_include_empty"])
+            if "ana_include_untagged" in settings: self.analyzer_gui.include_untagged.set(settings["ana_include_untagged"])
+            if "ana_batch" in settings: self.analyzer_gui.batch_size.set(settings["ana_batch"])
+            if "ana_grad" in settings: self.analyzer_gui.grad_acc.set(settings["ana_grad"])
+            if "ana_epochs" in settings: self.analyzer_gui.epochs.set(settings["ana_epochs"])
+
             if "use_delete" in settings: self.use_delete.set(settings["use_delete"])
             if "delete_tags_entry" in settings:
                 self.delete_tags_entry.delete(0, tk.END)
@@ -918,6 +950,9 @@ class DatasetOrganizerGUI:
 
 
 def main():
+    # EXE 패키징 환경에서 멀티프로세싱 자식 프로세스 생성을 정상적으로 제어하기 위해 필수 호출
+    multiprocessing.freeze_support()
+    
     try:
         os.makedirs('logs', exist_ok=True)
         logger.setup_logger(log_level='INFO', log_file='logs/converter.log')

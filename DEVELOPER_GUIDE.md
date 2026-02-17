@@ -72,6 +72,14 @@
 | **`duplicate_finder_tab.py`** | **UI 담당**. 검색 옵션 설정, 결과 트리뷰(Treeview) 표시, 미리보기 제공. |
 | **`duplicate_finder.py`** | **알고리즘 담당**. MD5 및 dHash 계산. **Union-Find 알고리즘**을 도입하여 범위 검색 시에도 연산 효율을 최적화. |
 
+#### F. 데이터셋 분석 (Dataset Analyzer) - New
+학습 효율 분석 및 최적화 도구입니다.
+
+| 파일명 | 역할 |
+|:---:|:---|
+| **`dataset_analyzer_tab.py`** | **UI 담당**. 분석 설정(배치, 에포크, 버킷 상숫값 등), 결과 표 표시, 리핏 수정 및 CSV 출력 기능. |
+| **`dataset_analyzer.py`** | **핵심 로직**. 멀티코어 기반 폴더 스캔, 버킷 할당 알고리즘, 리핏 추천 및 낭비율 계산 로직. 이미지 원본 해상도 기반의 **재버킷팅(Re-bucketize)** 로직 포함. |
+
 ---
 
 ## 3. 데이터 흐름 및 상호작용 (Data Flow)
@@ -99,8 +107,10 @@ main.py
  │    │    ├── metadata_utils.py
  │    │    └── app_logger.py
  │    └── image_settings.py
- └── duplicate_finder_tab.py
-      └── duplicate_finder.py
+ ├── duplicate_finder_tab.py
+ │    └── duplicate_finder.py
+ └── dataset_analyzer_tab.py
+      └── dataset_analyzer.py
 ```
 
 ---
@@ -127,6 +137,17 @@ main.py
 ---
 
 ## 5. 버전별 개발 현황 (Version History)
+
+### v1.1.0 (2026-02-17) - Major Update
+- **Dataset Analyzer (데이터셋 분석) 기능 추가**:
+    - **버킷 기반 효율 분석**: 이미지를 64픽셀 단위 버킷으로 자동 분류하여 데이터셋 규격 분포 분석 기능 도입.
+    - **지능형 리핏(Repeat) 추천 시스템**: 설정된 배치 및 데이터 수 평균을 기반으로 낭비 슬롯을 최소화하는 최적 리핏 계산 알고리즘 구현.
+    - **이론적 vs 실제 스텝 비교**: 단순 계산 스텝과 버킷 낭비가 포함된 실제 스텝을 동시 제공하여 학습 정확도 예측 지원.
+    - **분석 결과 CSV 출력**: 요약 정보 및 상세 내역을 포함한 CSV 출력(`utf-8-sig`) 기능 추가.
+    - **UI 개선**: 표 컬럼 정렬 상태 유지, 더블클릭을 통한 리핏 즉시 수정 기능 등 사용자 편의성 강화.
+    - **버킷 설정 사용자 정의**: 버킷 크기 단위(Step), 최소/최대 해상도를 사용자가 직접 UI에서 조절할 수 있는 기능 추가.
+- **안정성 강화**:
+    - Pillow의 `MAX_IMAGE_PIXELS` 제한 해제로 대용량 이미지 처리 시 발생하는 경고 및 중단 문제 해결.
 
 ### v1.0.5 (2026-02-09)
 - **Tag Processor (태그 처리) 기능 대폭 확장**:
