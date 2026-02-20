@@ -17,31 +17,26 @@ class DatasetAnalyzer:
     @staticmethod
     def make_buckets(target_res: int, min_res: int, max_res: int, steps: int) -> List[Tuple[int, int]]:
         """
-        kohya-ss (sd-scripts) 스타일의 버킷 목록 생성 로직.
-        설정된 target_res * target_res 면적을 최대한 유지하면서 64단위 조합을 만듭니다.
+        kohya-ss (sd-scripts) 스타일의 정밀 버킷 목록 생성 로직.
+        설정된 target_res * target_res 면적을 유지할 수 있는 유효한 해상도 조합만 생성합니다.
         """
         target_area = target_res * target_res
         buckets = set()
-        
+
         # 1. 정방형 버킷 추가
         buckets.add((target_res, target_res))
-        
+
         # 2. 가로/세로 조합 생성
         for w in range(min_res, max_res + 1, steps):
-            # w * h <= target_area 가 되는 최대 h 찾기 (64배수)
+            # w * h <= target_area 가 되는 최대 h 찾기 (steps 배수)
             h = (target_area // w // steps) * steps
-            if h < min_res: h = min_res
-            if h > max_res: h = max_res
-            
-            if h >= min_res:
-                buckets.add((w, h))
-                
-            # 반대 조합도 추가 (h * w)
-            w2 = (target_area // h // steps) * steps
-            if w2 < min_res: w2 = min_res
-            if w2 > max_res: w2 = max_res
-            if w2 >= min_res:
-                buckets.add((w2, h))
+
+            # 범위를 벗어나는 경우 (극단적 종횡비) 억지로 맞추지 않고 제외
+            if h < min_res or h > max_res:
+                continue
+
+            buckets.add((w, h))
+            buckets.add((h, w))
 
         # 중복 제거 및 정렬
         sorted_buckets = sorted(list(buckets), key=lambda x: x[0] / x[1])
@@ -106,6 +101,7 @@ class DatasetAnalyzer:
         images_in_folder = []
         buckets = defaultdict(int)
         image_dims = []
+        mismatches = [] # 종횡비 미스매치 리스트 추가
         
         try:
             for entry in os.scandir(path):
@@ -127,6 +123,18 @@ class DatasetAnalyzer:
                                 diffs = [abs(orig_ar - b_ar) for b_ar in bucket_ars]
                                 best_idx = diffs.index(min(diffs))
                                 bw, bh = bucket_list[best_idx]
+                                b_ar = bucket_ars[best_idx]
+                                
+                                # [New] 종횡비 미스매치 감지 (차이가 30% 이상일 때)
+                                if abs(orig_ar - b_ar) / b_ar > 0.3:
+                                    mismatches.append({
+                                        'file_name': file_path.name,
+                                        'resolution': f"{w}x{h}",
+                                        'orig_ar': round(orig_ar, 3),
+                                        'bucket_ar': round(b_ar, 3),
+                                        'bucket_res': f"{bw}x{bh}",
+                                        'folder_path': str(path)
+                                    })
                                 
                                 buckets[f"{bw}x{bh}"] += 1
                                 images_in_folder.append(file_path)
@@ -140,7 +148,8 @@ class DatasetAnalyzer:
             'folder_path': str(path),
             'count': len(images_in_folder),
             'buckets': dict(buckets),
-            'image_dims': image_dims
+            'image_dims': image_dims,
+            'mismatches': mismatches # 결과에 미스매치 포함
         }
 
     @staticmethod

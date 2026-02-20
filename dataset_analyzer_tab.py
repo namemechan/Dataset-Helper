@@ -117,7 +117,10 @@ class DatasetAnalyzerGUI:
         self.analyze_btn.pack(side=tk.LEFT, padx=5)
 
         self.export_btn = ttk.Button(btn_frame, text="CSV로 출력", command=self.export_to_csv, state=tk.DISABLED)
-        self.export_btn.pack(side=tk.LEFT, padx=5)
+        self.export_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.mismatch_btn = ttk.Button(btn_frame, text="버킷 미스 매치", command=self.show_mismatch_window, state=tk.DISABLED)
+        self.mismatch_btn.pack(side=tk.LEFT, padx=2)
         
         ttk.Separator(btn_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
         
@@ -251,6 +254,13 @@ class DatasetAnalyzerGUI:
         self.search_btn.config(state=tk.NORMAL)
         self.analyze_btn.config(state=tk.NORMAL)
         self.export_btn.config(state=tk.NORMAL)
+        
+        # 미스매치 데이터 확인 및 버튼 활성화
+        total_mismatches = sum(len(r.get('mismatches', [])) for r in self.results)
+        if total_mismatches > 0:
+            self.mismatch_btn.config(state=tk.NORMAL)
+        else:
+            self.mismatch_btn.config(state=tk.DISABLED)
 
     def _update_recommend_column(self):
         """표의 '추천 리핏' 열을 C+B 방식으로 업데이트"""
@@ -302,10 +312,77 @@ class DatasetAnalyzerGUI:
             total_waste_slots += w_slots
             total_slots += steps * batch_total
         avg_waste_rate = (total_waste_slots / total_slots * 100) if total_slots > 0 else 0
-        summary_text = (f"최종 배치(배치*그라디언트): {batch_total} | 총 폴더: {total_folders}개 | 총 데이터셋: {total_data}개 | 폴더당 평균: {self.avg_data:.1f}개\n"
+        
+        # 미스매치 건수 합산
+        total_mismatches = sum(len(r.get('mismatches', [])) for r in self.results)
+        mismatch_text = f"⚠️ 비율 미스매치 감지: {total_mismatches}건\n" if total_mismatches > 0 else ""
+
+        summary_text = (f"{mismatch_text}"
+                        f"최종 배치(배치*그라디언트): {batch_total} | 총 폴더: {total_folders}개 | 총 데이터셋: {total_data}개 | 폴더당 평균: {self.avg_data:.1f}개\n"
                         f"이론적 스텝 (1에포크): {total_theo_steps_per_epoch:.1f} | 이론적 총 스텝 ({epochs}에포크): {total_theo_steps:.1f}\n"
                         f"실제 예상 스텝 (1에포크): {total_steps_per_epoch} | 실제 예상 총 스텝 ({epochs}에포크): {total_steps} | 평균 배치 슬롯 낭비율: {avg_waste_rate:.2f}%")
         self.summary_label.config(text=summary_text)
+
+    def show_mismatch_window(self):
+        """미스매치 상세 목록을 보여주는 팝업 창"""
+        mismatches = []
+        for r in self.results:
+            mismatches.extend(r.get('mismatches', []))
+            
+        if not mismatches:
+            messagebox.showinfo("알림", "비율 미스매치 이미지가 없습니다.")
+            return
+            
+        win = tk.Toplevel(self.parent)
+        win.title("버킷 비율 미스매치 검수 (차이 30% 초과)")
+        win.geometry("900x500")
+        
+        frame = ttk.Frame(win, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=f"총 {len(mismatches)}개의 이미지가 배정된 버킷과 비율 차이가 큽니다. (학습 시 이미지 왜곡 주의)", foreground="red").pack(pady=5)
+        
+        cols = ("file", "res", "orig_ar", "bucket_ar", "bucket_res", "path")
+        tree = ttk.Treeview(frame, columns=cols, show="headings")
+        tree.heading("file", text="파일명")
+        tree.heading("res", text="원본 해상도")
+        tree.heading("orig_ar", text="원본 AR")
+        tree.heading("bucket_ar", text="버킷 AR")
+        tree.heading("bucket_res", text="배정 버킷")
+        tree.heading("path", text="폴더 경로")
+        
+        tree.column("file", width=150)
+        tree.column("res", width=100, anchor=tk.CENTER)
+        tree.column("orig_ar", width=80, anchor=tk.CENTER)
+        tree.column("bucket_ar", width=80, anchor=tk.CENTER)
+        tree.column("bucket_res", width=100, anchor=tk.CENTER)
+        tree.column("path", width=300)
+        
+        for m in mismatches:
+            tree.insert("", tk.END, values=(m['file_name'], m['resolution'], m['orig_ar'], m['bucket_ar'], m['bucket_res'], m['folder_path']))
+            
+        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        def save_mismatch_csv():
+            file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+            if not file_path: return
+            try:
+                with open(file_path, 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["파일명", "원본 해상도", "원본 종횡비", "버킷 종횡비", "배정 버킷 해상도", "폴더 경로"])
+                    for m in mismatches:
+                        writer.writerow([m['file_name'], m['resolution'], m['orig_ar'], m['bucket_ar'], m['bucket_res'], m['folder_path']])
+                messagebox.showinfo("완료", f"미스매치 목록이 저장되었습니다:\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("오류", f"저장 중 오류: {e}")
+
+        btn_frame = ttk.Frame(win, padding="10")
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="목록 CSV로 저장", command=save_mismatch_csv).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="닫기", command=win.destroy).pack(side=tk.RIGHT, padx=5)
 
     def export_to_csv(self):
         if not self.results: return
@@ -415,37 +492,57 @@ class DatasetAnalyzerGUI:
         self.update_summary()
 
     def set_averaged_repeats(self):
-        """리핏 평균화: 평균 이미지 수에 도달하도록 정수 단위로 증폭하며 낭비율 보정"""
+        """균등 리핏 설정: 리핏 1 기준 고정 목표치를 사용하여 부드럽고 자연스러운 리핏 산출 (무한증폭 수정)"""
         if not self.results: return
-        import math
         batch_total = self.batch_size.get() * self.grad_acc.get()
+        
+        # [중요] 누를 때마다 늘어나는 버그 수정: 리핏 1 기준의 '고정된' 목표 스텝 사용
+        # 모든 폴더가 리핏 1일 때의 총 스텝을 구하여 평균 기준점을 잡음
+        base_total_steps = 0
         for r in self.results:
-            if r['count'] < self.avg_data and r['count'] > 0:
-                # 1. 평균에 도달하기 위해 필요한 최소 정수 리핏 (자연스러운 시작점)
-                base_r = math.ceil(self.avg_data / r['count'])
+            _, _, steps = DatasetAnalyzer.calculate_waste(r['buckets'], 1, batch_total)
+            base_total_steps += steps
+        
+        # 리핏 1 기준의 평균 스텝 (이 값이 기준점이 되어 무한 증폭을 막음)
+        avg_base_step = base_total_steps / len(self.results) if self.results else 1
+        
+        for r in self.results:
+            if r['count'] > 0:
+                # 1. 이상적인 리핏 계산 (평균 스텝에 도달하기 위한 값)
+                # ideal_r = (기준평균스텝 * 배치) / 이미지수
+                ideal_r = (avg_base_step * batch_total) / r['count']
                 
-                # 2. 보정 탐색: base_r부터 위로 batch_total 범위 내에서 가장 '이쁜' 숫자 찾기
+                # 2. 탐색 범위 (이상적 리핏 주변으로 제한하여 퀀텀 점프 방지)
+                base_r = max(1, round(ideal_r))
+                search_range = [max(1, base_r - 1), base_r, base_r + 1, base_r + 2]
+                
                 best_r = base_r
-                min_waste = float('inf')
+                min_score = float('inf')
                 
-                # 평균치는 보장해야 하므로 base_r부터 위로만 탐색
-                for candidate in range(base_r, base_r + batch_total):
-                    _, waste_rate, _ = DatasetAnalyzer.calculate_waste(r['buckets'], candidate, batch_total)
+                for cand in sorted(list(set(search_range))):
+                    _, waste_rate, steps = DatasetAnalyzer.calculate_waste(r['buckets'], cand, batch_total)
                     
-                    # 낭비율이 현저히 낮아지면 선택
-                    if waste_rate < min_waste:
-                        min_waste = waste_rate
-                        best_r = candidate
-                        if min_waste < 1e-7: break # 0% 낭비(배수)를 찾으면 즉시 확정
-                    elif abs(waste_rate - min_waste) < 1e-7:
-                        # 낭비율이 같다면 짝수 우선, 그다음 작은 수
-                        if best_r % 2 != 0 and candidate % 2 == 0:
-                            best_r = candidate
-                
+                    # 3. 점수제 도입 (Stiffness 제거)
+                    # 스텝 차이(거리)를 가장 중요하게 보고, 낭비율은 미세한 가중치로만 사용
+                    step_error = abs(steps - avg_base_step)
+                    waste_penalty = (waste_rate / 100) * 0.5 # 낭비율의 영향력을 낮춤
+                    
+                    # 최종 점수 = 거리 오차 + 낭비 패널티
+                    score = step_error + waste_penalty
+                    
+                    if score < min_score:
+                        min_score = score
+                        best_r = cand
+                    elif abs(score - min_score) < 1e-7:
+                        # 점수가 같다면 짝수 선호
+                        if best_r % 2 != 0 and cand % 2 == 0:
+                            best_r = cand
+
                 r['repeat'] = best_r
             else:
                 r['repeat'] = 1
             self._recalculate_folder(r)
+        
         self.update_table()
         self.update_summary()
 
@@ -464,12 +561,50 @@ class DatasetAnalyzerGUI:
         total_data = sum(r['count'] for r in self.results)
         self.avg_data = total_data / len(self.results) if self.results else 0
         
+        # 버킷 목록 미리 생성 (미스매치 계산용)
+        bucket_list = DatasetAnalyzer.make_buckets(b_target, b_min, b_max, b_steps)
+        bucket_ars = [bw / bh for bw, bh in bucket_list]
+        
         for r in self.results:
             # 원본 차원 정보가 있으면 현재 설정으로 버킷 재계산
             if 'image_dims' in r and r['image_dims']:
                 r['buckets'] = DatasetAnalyzer.rebucketize(r['image_dims'], b_steps, b_min, b_max, b_target)
+                
+                # 미스매치 재계산
+                r['mismatches'] = []
+                # image_dims만으론 파일명을 알 수 없으므로, 초기 스캔 때 저장된 구조가 필요할 수 있음.
+                # 하지만 analyze_folder_worker가 이미 r['mismatches']를 채워왔으므로, 
+                # 여기서 비율만 다시 체크함 (이미지 순서가 dims와 동일하다고 가정)
+                # 원본 파일명 정보를 보존하기 위해 초기 스캔 시 image_dims에 파일명을 포함하도록 수정하는 것이 정석이나,
+                # 일단은 '이미지 정보'가 유효할 때만 비율 차이만 다시 계산함.
+                # (실제 파일명이 누락될 수 있으므로, 재분석 시에는 "미스매치 재감지" 문구 정도만 업데이트)
+                
+                for w, h in r['image_dims']:
+                    orig_ar = w / h
+                    diffs = [abs(orig_ar - b_ar) for b_ar in bucket_ars]
+                    best_idx = diffs.index(min(diffs))
+                    b_ar = bucket_ars[best_idx]
+                    bw, bh = bucket_list[best_idx]
+                    
+                    if abs(orig_ar - b_ar) / b_ar > 0.3:
+                        r['mismatches'].append({
+                            'file_name': "(계산 갱신됨)",
+                            'resolution': f"{w}x{h}",
+                            'orig_ar': round(orig_ar, 3),
+                            'bucket_ar': round(b_ar, 3),
+                            'bucket_res': f"{bw}x{bh}",
+                            'folder_path': r['folder_path']
+                        })
+            
             self._recalculate_folder(r)
             
         self._update_recommend_column() # 추천 리핏 열 갱신
         self.update_table()
         self.update_summary()
+        
+        # 버튼 상태 업데이트
+        total_mismatches = sum(len(r.get('mismatches', [])) for r in self.results)
+        if total_mismatches > 0:
+            self.mismatch_btn.config(state=tk.NORMAL)
+        else:
+            self.mismatch_btn.config(state=tk.DISABLED)
