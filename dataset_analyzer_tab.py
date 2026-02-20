@@ -122,8 +122,9 @@ class DatasetAnalyzerGUI:
         ttk.Separator(btn_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
         
         ttk.Button(btn_frame, text="리핏 일괄 설정", command=self.ask_all_repeats).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="추천 리핏 설정", command=self.set_recommended_repeats).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="최적 리핏 설정", command=self.set_optimal_repeats).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="리핏 평균화", command=self.set_averaged_repeats).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="균등 리핏 설정", command=self.set_averaged_repeats).pack(side=tk.LEFT, padx=2)
 
         # 3. 요약 정보 영역
         self.summary_frame = ttk.LabelFrame(container, text="요약 결과", padding="10")
@@ -240,16 +241,25 @@ class DatasetAnalyzerGUI:
         self.results = raw_results
         total_data = sum(r['count'] for r in self.results)
         self.avg_data = total_data / len(self.results) if self.results else 0
-        batch_total = self.batch_size.get() * self.grad_acc.get()
+        
         for r in self.results:
-            r['recommend'] = DatasetAnalyzer.calculate_recommend_repeat(r['count'], self.avg_data, batch_total)
             r['repeat'] = 1
-            self._recalculate_folder(r)
+            
+        self._update_recommend_column()
         self.update_table()
         self.update_summary()
         self.search_btn.config(state=tk.NORMAL)
         self.analyze_btn.config(state=tk.NORMAL)
         self.export_btn.config(state=tk.NORMAL)
+
+    def _update_recommend_column(self):
+        """표의 '추천 리핏' 열을 C+B 방식으로 업데이트"""
+        if not self.results: return
+        batch_total = self.batch_size.get() * self.grad_acc.get()
+        rec_repeats = DatasetAnalyzer.calculate_recommend_repeats(self.results, batch_total)
+        for r, rec in zip(self.results, rec_repeats):
+            r['recommend'] = rec
+            self._recalculate_folder(r)
 
     def update_table(self):
         self.tree.delete(*self.tree.get_children())
@@ -381,26 +391,58 @@ class DatasetAnalyzerGUI:
         self.update_table()
         self.update_summary()
 
+    def set_recommended_repeats(self):
+        """추천 리핏 설정: 표에 계산된 '추천 리핏(C+B)' 값을 설정 리핏으로 적용"""
+        if not self.results: return
+        for r in self.results:
+            r['repeat'] = r.get('recommend', 1)
+            self._recalculate_folder(r)
+        self.update_table()
+        self.update_summary()
+
     def set_optimal_repeats(self):
+        """최적 리핏 설정: 기존 방식(소규모 폴더 = 최종 배치값) 적용으로 낭비율 최소화"""
         if not self.results: return
         batch_total = self.batch_size.get() * self.grad_acc.get()
         for r in self.results:
-            if r['count'] >= self.avg_data: r['repeat'] = r['recommend']
-            else: r['repeat'] = batch_total
+            # 평균보다 적은 폴더는 최종 배치값으로 고정 (버킷 낭비 0% 유도)
+            if r['count'] < self.avg_data:
+                r['repeat'] = batch_total
+            else:
+                r['repeat'] = r.get('recommend', 1)
             self._recalculate_folder(r)
         self.update_table()
         self.update_summary()
 
     def set_averaged_repeats(self):
+        """리핏 평균화: 평균 이미지 수에 도달하도록 정수 단위로 증폭하며 낭비율 보정"""
         if not self.results: return
         import math
+        batch_total = self.batch_size.get() * self.grad_acc.get()
         for r in self.results:
             if r['count'] < self.avg_data and r['count'] > 0:
-                # 평균에 도달하기 위해 필요한 리핏 배수 계산
-                target_ratio = self.avg_data / r['count']
-                # math.ceil을 사용하여 평균을 넉넉하게 넘길 수 있는 2의 거듭제곱 찾기
-                power = math.ceil(math.log2(target_ratio))
-                r['repeat'] = int(math.pow(2, max(0, power)))
+                # 1. 평균에 도달하기 위해 필요한 최소 정수 리핏 (자연스러운 시작점)
+                base_r = math.ceil(self.avg_data / r['count'])
+                
+                # 2. 보정 탐색: base_r부터 위로 batch_total 범위 내에서 가장 '이쁜' 숫자 찾기
+                best_r = base_r
+                min_waste = float('inf')
+                
+                # 평균치는 보장해야 하므로 base_r부터 위로만 탐색
+                for candidate in range(base_r, base_r + batch_total):
+                    _, waste_rate, _ = DatasetAnalyzer.calculate_waste(r['buckets'], candidate, batch_total)
+                    
+                    # 낭비율이 현저히 낮아지면 선택
+                    if waste_rate < min_waste:
+                        min_waste = waste_rate
+                        best_r = candidate
+                        if min_waste < 1e-7: break # 0% 낭비(배수)를 찾으면 즉시 확정
+                    elif abs(waste_rate - min_waste) < 1e-7:
+                        # 낭비율이 같다면 짝수 우선, 그다음 작은 수
+                        if best_r % 2 != 0 and candidate % 2 == 0:
+                            best_r = candidate
+                
+                r['repeat'] = best_r
             else:
                 r['repeat'] = 1
             self._recalculate_folder(r)
@@ -426,9 +468,8 @@ class DatasetAnalyzerGUI:
             # 원본 차원 정보가 있으면 현재 설정으로 버킷 재계산
             if 'image_dims' in r and r['image_dims']:
                 r['buckets'] = DatasetAnalyzer.rebucketize(r['image_dims'], b_steps, b_min, b_max, b_target)
-                
-            r['recommend'] = DatasetAnalyzer.calculate_recommend_repeat(r['count'], self.avg_data, batch_total)
             self._recalculate_folder(r)
             
+        self._update_recommend_column() # 추천 리핏 열 갱신
         self.update_table()
         self.update_summary()

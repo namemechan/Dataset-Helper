@@ -192,25 +192,54 @@ class DatasetAnalyzer:
         return results
 
     @staticmethod
-    def calculate_recommend_repeat(count: int, avg_count: float, batch_total: int) -> int:
-        B = batch_total
-        AVG = avg_count
+    def calculate_recommend_repeats(folders: List[Dict], batch_total: int) -> List[int]:
+        """C+B 혼합 방식: 전체 폴더의 스텝 균형을 잡은 뒤 낭비율을 최소화하는 리핏 산출"""
+        if not folders: return []
+        if batch_total <= 0: return [1] * len(folders)
         
-        if count == 0:
-            return B
+        # 1단계: 리핏 1 기준 각 폴더의 기본 스텝 계산
+        base_steps = []
+        for f in folders:
+            _, _, steps = DatasetAnalyzer.calculate_waste(f['buckets'], 1, batch_total)
+            base_steps.append(steps)
+            
+        # 2단계: 목표 스텝 설정 (0을 제외한 중앙값)
+        import statistics
+        valid_steps = [s for s in base_steps if s > 0]
+        if not valid_steps: return [1] * len(folders)
+        target_step = statistics.median(valid_steps)
 
-        if count < AVG / 2:
-            return B * 2
-        elif count < AVG:
-            return B
-        elif count < AVG * 2:
-            return max(1, B // 2)
-        elif count < AVG * 4:
-            return max(1, B // 4)
-        elif count < AVG * 8:
-            return max(1, B // 8)
-        else:
-            return 1
+        results = []
+        for i, f in enumerate(folders):
+            bs = base_steps[i]
+            if bs <= 0:
+                results.append(1)
+                continue
+            
+            # 3단계: 리핏 역산 및 탐색 범위 설정
+            approx_r = target_step / bs
+            target_r = max(1, round(approx_r))
+            
+            # 낭비율 최소화 탐색 (목표 리핏 주변 ±25% 범위)
+            search_range = max(2, int(target_r * 0.25))
+            start_r = max(1, target_r - search_range)
+            end_r = target_r + search_range
+            
+            best_r = target_r
+            min_waste = float('inf')
+            
+            for r in range(start_r, end_r + 1):
+                _, waste_rate, _ = DatasetAnalyzer.calculate_waste(f['buckets'], r, batch_total)
+                # 낭비율이 더 낮거나, 낭비율이 같은 경우 목표 리핏에 더 가까운 값 선택
+                if waste_rate < min_waste:
+                    min_waste = waste_rate
+                    best_r = r
+                elif abs(waste_rate - min_waste) < 1e-7:
+                    if abs(r - target_r) < abs(best_r - target_r):
+                        best_r = r
+            
+            results.append(best_r)
+        return results
 
     @staticmethod
     def calculate_waste(count_per_bucket: Dict[str, int], repeat: int, batch_total: int) -> Tuple[int, float, int]:
