@@ -72,13 +72,34 @@
 | **`duplicate_finder_tab.py`** | **UI 담당**. 검색 옵션 설정, 결과 트리뷰(Treeview) 표시, 미리보기 제공. |
 | **`duplicate_finder.py`** | **알고리즘 담당**. MD5 및 dHash 계산. **Union-Find 알고리즘**을 도입하여 범위 검색 시에도 연산 효율을 최적화. |
 
-#### F. 데이터셋 분석 (Dataset Analyzer) - New
+#### F. 데이터셋 분석 (Dataset Analyzer)
 학습 효율 분석 및 최적화 도구입니다.
 
 | 파일명 | 역할 |
 |:---:|:---|
-| **`dataset_analyzer_tab.py`** | **UI 담당**. 학습 환경 설정(기준 해상도, 배치, 에포크 등), 결과 표 표시, 리핏 수정 및 CSV 출력 기능. |
-| **`dataset_analyzer.py`** | **핵심 로직**. 면적(Area) 보존형 정밀 버킷팅 알고리즘, 리핏 추천 및 낭비율 계산 로직. 이미지 원본 해상도 기반의 **재버킷팅(Re-bucketize)** 로직 포함. |
+| **`dataset_analyzer_tab.py`** | **UI 담당**. 학습 환경 설정(기준 해상도, 배치, 에포크 등), 결과 표 표시, 리핏 수정 및 CSV 출력 기능. `SnapshotWindow`, `SaveSnapshotDialog`, `LoadSnapshotDialog` 클래스 포함. |
+| **`dataset_analyzer.py`** | **핵심 로직**. 면적(Area) 보존형 정밀 버킷팅 알고리즘, 리핏 추천 및 낭비율 계산 로직. 이미지 원본 해상도 기반의 **재버킷팅(Re-bucketize)** 로직 포함. **`DatasetSnapshot`** 클래스(스냅샷 수집·저장·불러오기·비교)를 함께 포함. |
+
+##### 데이터셋 스냅샷 서브시스템 (`DatasetSnapshot` 클래스)
+
+`dataset_analyzer.py` 내에 정적 유틸리티 클래스 `DatasetSnapshot`으로 구현되어 있으며, 별도 인스턴스 없이 사용합니다.
+
+| 메서드 | 역할 |
+|:---|:---|
+| `get_snapshot_dir()` | `snapshots/` 폴더 경로 반환. `sys.frozen` 여부에 따라 EXE 위치 또는 소스 위치를 베이스로 사용. |
+| `collect(root_path)` | 지정 폴더를 재귀 탐색하여 최하위 폴더 목록, 이미지 수, 페어 수, 용량 등을 수집. 폴더 트리 구조도 포함. |
+| `save(data, name, memo)` | 수집된 딕셔너리를 JSON으로 저장. 파일명 = `{안전이름}_{YYYYMMDD_HHMMSS}.json` (중복 시 카운터 자동 증가). |
+| `load(filepath)` | JSON 파일을 딕셔너리로 로드. |
+| `list_snapshots()` | `snapshots/` 폴더의 모든 스냅샷을 수정 시각 내림차순으로 반환. 각 항목은 `(표시이름, 절대경로)` 튜플. |
+| `compare(base, comp)` | 두 스냅샷을 비교. **정확 매칭**(rel_path 동일) + **퍼지 매칭**(폴더 이름 동일, 경로 상이)으로 폴더 이동·재구성을 감지. `added`, `removed`, `changed`, `fuzzy_matched`, `summary` 키를 포함한 딕셔너리 반환. |
+
+##### 스냅샷 UI 클래스 (`dataset_analyzer_tab.py`)
+
+| 클래스 | 역할 |
+|:---|:---|
+| `SnapshotWindow` | 메인 스냅샷 관리 창. 상단 액션 버튼 바 + 노트북(기본 스냅샷 탭 / 비교 스냅샷 탭 / 차이점 분석 탭) 구조. |
+| `SaveSnapshotDialog` | 스냅샷 이름·메모 입력용 모달 다이얼로그. |
+| `LoadSnapshotDialog` | 드롭다운 목록 + 파일 탐색기 양방식 스냅샷 선택 다이얼로그. |
 
 ---
 
@@ -110,7 +131,10 @@ main.py
  ├── duplicate_finder_tab.py
  │    └── duplicate_finder.py
  └── dataset_analyzer_tab.py
-      └── dataset_analyzer.py
+      ├── dataset_analyzer.py  (DatasetAnalyzer + DatasetSnapshot)
+      ├── SaveSnapshotDialog
+      ├── LoadSnapshotDialog
+      └── SnapshotWindow
 ```
 
 ---
@@ -137,6 +161,15 @@ main.py
 ---
 
 ## 5. 버전별 개발 현황 (Version History)
+
+### v1.1.5 (2026-03-01) - Feature Update
+- **Dataset Analyzer - 데이터셋 스냅샷 기능 추가**:
+    - **`DatasetSnapshot` 클래스 추가** (`dataset_analyzer.py`): 스냅샷 수집(`collect`), 저장(`save`), 불러오기(`load`), 목록 조회(`list_snapshots`), 비교(`compare`) 기능을 정적 메서드로 구현.
+    - **스냅샷 저장**: 최하위 폴더 구조, 폴더별 이미지 수·페어(pair) 수·미짝 수·용량, 폴더 트리, 총 용량 등을 JSON 형식으로 `snapshots/` 폴더에 저장. 파일명에 타임스탬프를 포함해 이름 중복 및 덮어쓰기 방지. EXE 패키징 환경(`sys.frozen`) 완전 지원.
+    - **스냅샷 불러오기 다이얼로그**: `snapshots/` 폴더 목록 드롭다운 + 파일 탐색기 양방식 지원. 가장 최근 항목이 기본 선택됨.
+    - **스냅샷 비교 로직 (`compare`)**: ① rel_path 완전 일치(정확 매칭) → ② 폴더 이름 일치(퍼지 매칭, 경로 이동·재구성 감지) → ③ 나머지를 추가/삭제로 분류하는 3단계 전략으로, 폴더 구조가 크게 바뀐 경우에도 의미 있는 비교 결과를 도출.
+    - **`SnapshotWindow` UI** (`dataset_analyzer_tab.py`): 상단 액션 버튼 바 + 노트북 구조(기본 스냅샷 / 비교 스냅샷 / 차이점 분석 탭). 차이점 분석 탭은 4개 서브탭(신규 추가·삭제·변경·이동 재구성)과 요약 통계(총 증감량·증감율) 제공.
+    - **버튼 위치**: 기존 "요약 결과" `LabelFrame` 내부 오른쪽 끝에 "데이터셋 스냅샷" 버튼 배치 (grid 레이아웃으로 요약 텍스트와 공존).
 
 ### v1.1.4 (2026-02-22)
 - **Dataset Analyzer (데이터셋 분석) 알고리즘버그 수정 및 버킷 미스 매치 데이터 검출 추가**:
