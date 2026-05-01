@@ -18,7 +18,7 @@
 
 ## 2. 모듈별 상세 구조 및 역할 (Module Structure)
 
-프로젝트는 크게 **메인 시스템**, **공통 유틸리티**, 그리고 **5가지 핵심 기능 모듈**로 나뉩니다.
+프로젝트는 크게 **메인 시스템**, **공통 유틸리티**, 그리고 **6가지 핵심 기능 모듈**로 나뉩니다.
 
 ### 2.1. 메인 시스템 (Core System)
 애플리케이션의 진입점이자 전체적인 레이아웃을 담당합니다.
@@ -80,6 +80,64 @@
 | **`dataset_analyzer_tab.py`** | **UI 담당**. 학습 환경 설정(기준 해상도, 배치, 에포크 등), 결과 표 표시, 리핏 수정 및 CSV 출력 기능. `SnapshotWindow`, `SaveSnapshotDialog`, `LoadSnapshotDialog` 클래스 포함. |
 | **`dataset_analyzer.py`** | **핵심 로직**. 면적(Area) 보존형 정밀 버킷팅 알고리즘, 리핏 추천 및 낭비율 계산 로직. 이미지 원본 해상도 기반의 **재버킷팅(Re-bucketize)** 로직 포함. **`DatasetSnapshot`** 클래스(스냅샷 수집·저장·불러오기·비교)를 함께 포함. |
 
+#### G. 검색 및 분류 (Search & Filter)
+파일명·용량·해상도·태그 조건을 자유롭게 조합하여 데이터셋을 정밀 검색하고 일괄 처리하는 도구입니다.
+
+| 파일명 | 역할 |
+|:---:|:---|
+| **`search_filter_tab.py`** | **UI 담당**. 경로 설정(독립 경로/공통 경로), 4가지 검색 조건 입력 UI, 결과 Treeview, 이미지·태그 미리보기 패널, 처리 대상 선택 및 삭제·이동·복사 버튼, 결과 로그 팝업. |
+| **`search_filter.py`** | **핵심 로직**. `FileEntry` 데이터 클래스, 조건 평가 함수(`entry_passes_filter`), 디렉토리 스캔(`_collect_entries`), 멀티코어 검색(`search_files`), 파일 처리(`process_entries`), 충돌 방지 경로 생성(`_resolve_conflict_path`), 고아 파일 경고 생성(`get_orphan_warning`). |
+
+##### `search_filter.py` 핵심 구조
+
+**`FileEntry` 클래스**
+
+| 속성/프로퍼티 | 설명 |
+|:---|:---|
+| `image_path` | 이미지 파일 `Path` (없으면 `None`) |
+| `txt_path` | 태깅 파일 `Path` (없으면 `None`) |
+| `file_size_kb` | 이미지(또는 txt) 파일 크기(KB) |
+| `resolution` | `(width, height)` 튜플. PIL로 읽음. 실패 시 `None` |
+| `tags` | 쉼표 구분 태그 리스트 (소문자 정규화) |
+
+**조건 평가 로직 (`entry_passes_filter`)**
+
+각 조건 딕셔너리는 `{'mode': 'unused'|'and'|'or'|'not', 'type': ..., ...파라미터}` 구조를 가집니다.
+
+- `unused` 조건은 평가에서 완전히 제외.
+- `and` / `not` 조건을 먼저 평가. 하나라도 실패하면 즉시 `False` 반환.
+- `or` 조건이 하나 이상 있으면, AND/NOT을 모두 통과한 뒤 OR 중 하나 이상 통과해야 최종 `True`.
+- 활성 조건이 `or`만 있는 경우 OR 중 하나 이상 통과하면 `True`.
+
+**`search_files` 함수**
+
+```python
+search_files(
+    folder_path: str,
+    recursive: bool,
+    conditions: List[Dict],
+    num_cores: int = 1,
+    progress_callback: Callable = None,
+    stop_event: threading.Event = None,
+) -> List[FileEntry]
+```
+
+- 해상도 조건이 활성화되어 있고 `num_cores > 1`이면 `ThreadPoolExecutor`로 이미지를 병렬 열기하여 속도를 향상.
+- `stop_event`가 설정되면 즉시 중단하고 빈 리스트 반환.
+
+**`process_entries` 함수**
+
+```python
+process_entries(
+    entries: List[FileEntry],
+    action: str,        # 'delete' | 'move' | 'copy'
+    target_type: str,   # 'both' | 'image' | 'txt'
+    dest_folder: str,
+) -> Tuple[int, int, List[str]]
+```
+
+이동·복사 시 대상 경로가 이미 존재하면 `_resolve_conflict_path`가 `stem_1`, `stem_2` 방식으로 자동 회피.
+
 ##### 데이터셋 스냅샷 서브시스템 (`DatasetSnapshot` 클래스)
 
 `dataset_analyzer.py` 내에 정적 유틸리티 클래스 `DatasetSnapshot`으로 구현되어 있으며, 별도 인스턴스 없이 사용합니다.
@@ -130,11 +188,13 @@ main.py
  │    └── image_settings.py
  ├── duplicate_finder_tab.py
  │    └── duplicate_finder.py
- └── dataset_analyzer_tab.py
-      ├── dataset_analyzer.py  (DatasetAnalyzer + DatasetSnapshot)
-      ├── SaveSnapshotDialog
-      ├── LoadSnapshotDialog
-      └── SnapshotWindow
+ ├── dataset_analyzer_tab.py
+ │    ├── dataset_analyzer.py  (DatasetAnalyzer + DatasetSnapshot)
+ │    ├── SaveSnapshotDialog
+ │    ├── LoadSnapshotDialog
+ │    └── SnapshotWindow
+ └── search_filter_tab.py
+      └── search_filter.py  (FileEntry + 검색/처리 로직)
 ```
 
 ---
@@ -161,6 +221,28 @@ main.py
 ---
 
 ## 5. 버전별 개발 현황 (Version History)
+
+### v1.1.6 (2026-05-01) - Feature Update
+- **Search & Filter (검색 및 분류) 기능 추가**:
+    - **신규 파일 추가**:
+        - `search_filter.py`: 검색·처리 핵심 로직 모듈. `FileEntry` 데이터 클래스, 조건 평가(`entry_passes_filter`), 디렉토리 스캔(`_collect_entries`), 멀티코어 검색(`search_files`), 파일 처리(`process_entries`), 충돌 방지 경로 생성(`_resolve_conflict_path`), 고아 파일 경고 생성(`get_orphan_warning`) 포함.
+        - `search_filter_tab.py`: 검색 및 분류 탭 전체 UI. `SearchFilterGUI` 클래스로 구현.
+    - **`main.py` 수정**:
+        - `SearchFilterGUI` import 추가.
+        - `create_widgets`에 **탭 7: 검색 및 분류** 탭 추가 (`create_search_filter_tab` 메서드).
+        - `save_settings` / `load_settings`에 검색 및 분류 탭 관련 설정 16개 항목(`sf_*` 키) 추가.
+    - **검색 조건 4종 지원**: 파일명(문자열 포함), 용량(KB 범위), 해상도(너비·높이 범위), 태그(`.txt` 내 `|` 구분 다중 태그).
+    - **조건 결합 모드 4종**: 각 조건마다 미사용 / AND / OR / NOT 을 독립적으로 라디오 버튼으로 선택. AND·NOT은 교집합 필터로, OR은 합집합 추가로 동작하는 복합 평가 로직 적용.
+    - **멀티코어 검색 지원**: 해상도 조건 활성 시 `ThreadPoolExecutor`로 이미지를 병렬 열기하여 대용량 데이터셋에서도 빠른 검색 속도 제공. 상단 '사용 코어' 설정 값 반영.
+    - **결과 Treeview**: 파일명·확장자·폴더·용량·해상도·태그 미리보기 열 표시. 열 헤더 클릭으로 오름차순/내림차순 정렬 지원.
+    - **체크박스 선택**: 각 행에 체크박스(☐/☑) 열 제공. 전체 선택·전체 선택해제 버튼으로 일괄 제어.
+    - **미리보기 패널**: 선택 항목의 이미지 썸네일(최대 300×300)과 `.txt` 파일 전체 내용을 하단 패널에 실시간 표시.
+    - **처리 대상 3종**: 이미지+태깅(세트) / 이미지만 / 태깅(.txt)만 을 라디오 버튼으로 선택.
+    - **처리 방식 3종**: 삭제(영구 삭제) / 이동 / 복사. 이동·복사 시 파일명 충돌 발생 시 `stem_1`, `stem_2` 방식으로 자동 회피하여 기존 파일 덮어쓰기 방지.
+    - **고아 파일 경고**: 이미지 또는 태깅 중 하나만 처리하는 경우, 처리 전 남게 되는 짝 없는 파일 목록을 경고 팝업으로 표시하여 사용자가 의도적으로 확인 후 진행하도록 유도.
+    - **독립 경로 지원**: 상단 공통 작업 폴더와 별개로 이 탭 전용 폴더를 지정할 수 있는 독립 경로 옵션 추가.
+    - **하위 폴더 포함**: 재귀 스캔 옵션으로 하위 폴더까지 검색 대상에 포함.
+    - **설정 영구 저장**: 검색 조건 모드, 검색어, 처리 대상, 독립 경로 등 모든 UI 상태가 `settings.json`에 자동 저장·복원.
 
 ### v1.1.5 (2026-03-01) - Feature Update
 - **Dataset Analyzer - 데이터셋 스냅샷 기능 추가**:

@@ -13,6 +13,7 @@ from utils import get_paired_files, ScrollableFrame
 from image_converter_tab import ImageConverterGUI
 from duplicate_finder_tab import DuplicateFinderGUI
 from dataset_analyzer_tab import DatasetAnalyzerGUI
+from search_filter_tab import SearchFilterGUI
 from app_logger import logger
 import os
 import sys
@@ -120,6 +121,9 @@ class DatasetOrganizerGUI:
 
         # 탭 6: 데이터셋 분석 (New)
         self.create_analyzer_tab(notebook)
+
+        # 탭 7: 검색 및 분류 (New)
+        self.create_search_filter_tab(notebook)
     
     def create_rename_tab(self, notebook):
         tab_frame = ttk.Frame(notebook)
@@ -433,6 +437,11 @@ class DatasetOrganizerGUI:
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="데이터셋 분석")
         self.analyzer_gui = DatasetAnalyzerGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
+
+    def create_search_filter_tab(self, notebook):
+        frame = ttk.Frame(notebook)
+        notebook.add(frame, text="검색 및 분류")
+        self.search_filter_gui = SearchFilterGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -812,6 +821,24 @@ class DatasetOrganizerGUI:
             "ana_grad": self.analyzer_gui.grad_acc.get(),
             "ana_epochs": self.analyzer_gui.epochs.get(),
 
+            # 검색 및 분류 탭 설정
+            "sf_use_independent": self.search_filter_gui.use_independent_path.get(),
+            "sf_independent_path": self.search_filter_gui.independent_folder_path.get(),
+            "sf_recursive": self.search_filter_gui.recursive.get(),
+            "sf_filename_mode": self.search_filter_gui.filename_mode.get(),
+            "sf_filename_pattern": self.search_filter_gui.filename_pattern.get(),
+            "sf_size_mode": self.search_filter_gui.size_mode.get(),
+            "sf_size_min": self.search_filter_gui.size_min.get(),
+            "sf_size_max": self.search_filter_gui.size_max.get(),
+            "sf_res_mode": self.search_filter_gui.res_mode.get(),
+            "sf_res_min_w": self.search_filter_gui.res_min_w.get(),
+            "sf_res_max_w": self.search_filter_gui.res_max_w.get(),
+            "sf_res_min_h": self.search_filter_gui.res_min_h.get(),
+            "sf_res_max_h": self.search_filter_gui.res_max_h.get(),
+            "sf_tag_mode": self.search_filter_gui.tag_mode.get(),
+            "sf_tag_query": self.search_filter_gui.tag_query.get(),
+            "sf_target_type": self.search_filter_gui.target_type.get(),
+
             "use_delete": self.use_delete.get(),
             "delete_tags_entry": self.delete_tags_entry.get(),
             "use_conditional_delete": self.use_conditional_delete.get(),
@@ -920,6 +947,41 @@ class DatasetOrganizerGUI:
             if "ana_batch" in settings: self.analyzer_gui.batch_size.set(settings["ana_batch"])
             if "ana_grad" in settings: self.analyzer_gui.grad_acc.set(settings["ana_grad"])
             if "ana_epochs" in settings: self.analyzer_gui.epochs.set(settings["ana_epochs"])
+
+            # 검색 및 분류 탭 로드
+            if "sf_use_independent" in settings:
+                self.search_filter_gui.use_independent_path.set(settings["sf_use_independent"])
+                self.search_filter_gui._toggle_path_ui()
+            if "sf_independent_path" in settings:
+                self.search_filter_gui.independent_folder_path.set(settings["sf_independent_path"])
+            if "sf_recursive" in settings:
+                self.search_filter_gui.recursive.set(settings["sf_recursive"])
+            if "sf_filename_mode" in settings:
+                self.search_filter_gui.filename_mode.set(settings["sf_filename_mode"])
+            if "sf_filename_pattern" in settings:
+                self.search_filter_gui.filename_pattern.set(settings["sf_filename_pattern"])
+            if "sf_size_mode" in settings:
+                self.search_filter_gui.size_mode.set(settings["sf_size_mode"])
+            if "sf_size_min" in settings:
+                self.search_filter_gui.size_min.set(settings["sf_size_min"])
+            if "sf_size_max" in settings:
+                self.search_filter_gui.size_max.set(settings["sf_size_max"])
+            if "sf_res_mode" in settings:
+                self.search_filter_gui.res_mode.set(settings["sf_res_mode"])
+            if "sf_res_min_w" in settings:
+                self.search_filter_gui.res_min_w.set(settings["sf_res_min_w"])
+            if "sf_res_max_w" in settings:
+                self.search_filter_gui.res_max_w.set(settings["sf_res_max_w"])
+            if "sf_res_min_h" in settings:
+                self.search_filter_gui.res_min_h.set(settings["sf_res_min_h"])
+            if "sf_res_max_h" in settings:
+                self.search_filter_gui.res_max_h.set(settings["sf_res_max_h"])
+            if "sf_tag_mode" in settings:
+                self.search_filter_gui.tag_mode.set(settings["sf_tag_mode"])
+            if "sf_tag_query" in settings:
+                self.search_filter_gui.tag_query.set(settings["sf_tag_query"])
+            if "sf_target_type" in settings:
+                self.search_filter_gui.target_type.set(settings["sf_target_type"])
 
             if "use_delete" in settings: self.use_delete.set(settings["use_delete"])
             if "delete_tags_entry" in settings:
