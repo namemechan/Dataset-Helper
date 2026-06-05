@@ -58,11 +58,37 @@
 
 | 파일명 | 역할 |
 |:---:|:---|
-| **`image_converter_tab.py`** | **UI 담당**. 변환 탭의 레이아웃, 사용자 입력 처리, 진행 상황 표시. |
-| **`image_converter_engine.py`** | **핵심 엔진**. 이미지 변환, 리사이징, 포맷 변경, 메타데이터 보존 처리의 실제 수행. |
-| `image_settings.py` | 변환기 전용 설정(`converter_config.json`)의 유효성 검사, 로드/저장. |
-| `image_file_utils.py` | 파일 검색, 출력 경로 생성, 권한 확인 등 파일 시스템 관련 헬퍼. |
+| **`image_converter_tab.py`** | **UI 담당**. 변환 탭의 레이아웃, 사용자 입력 처리, 진행 상황 표시. "입력 폴더에 출력" 체크박스·충돌 처리 라디오버튼, "변환 후 원본 삭제" 체크박스·확인 팝업 라디오버튼 포함. |
+| **`image_converter_engine.py`** | **핵심 엔진**. 이미지 변환, 리사이징, 포맷 변경, 메타데이터 보존 처리의 실제 수행. `output_to_input` 플래그에 따라 출력 경로 생성 로직 분기. `batch_convert_images` 반환값에 `original_paths` 키 포함(원본 삭제 기능 연동). |
+| `image_settings.py` | 변환기 전용 설정(`converter_config.json`)의 유효성 검사, 로드/저장. `output_settings`에 `output_to_input`, `input_conflict_mode` 키, `delete_settings` 섹션(`delete_original`, `delete_confirm_popup`) 추가. |
+| `image_file_utils.py` | 파일 검색, 출력 경로 생성, 권한 확인 등 파일 시스템 관련 헬퍼. `generate_output_filename_to_input`(입력폴더=출력폴더 경로 생성), `handle_file_conflicts_for_input`(skip/overwrite/rename 3종 충돌 처리) 추가. |
 | `image_utils.py` | 파일 크기 포맷팅, 진행률 계산, 시간 예측 등 잡다한 헬퍼. |
+
+##### `image_converter_tab.py` 주요 UI 구성 및 연동 로직
+
+**입력 폴더에 출력 (`output_to_input`)**
+
+| 항목 | 설명 |
+|:---|:---|
+| `output_to_input_var` (`BooleanVar`) | 체크박스 상태. `True`이면 `target_folder` 입력란·버튼 비활성화 |
+| `input_conflict_mode_var` (`StringVar`) | 충돌 처리 라디오버튼 값. `'skip'` / `'overwrite'` / `'rename'` |
+| `toggle_output_to_input()` | 체크박스 변경 시 출력 폴더 UI 활성/비활성 및 충돌 라디오버튼 연동 제어 |
+| `toggle_suffix_entry()` | 접미사 체크박스와 충돌 라디오버튼 연동. 접미사 활성 시 충돌 옵션 자동 비활성 |
+
+충돌 처리 라디오버튼은 ① `output_to_input`이 켜져 있고 ② 접미사가 꺼져 있을 때만 활성화됩니다. `start_conversion` 진입 시 `output_to_input` 모드면 `target_folder`에 `source_folder` 값을 임시 대입하여 기존 `validate_settings`를 그대로 통과합니다.
+
+**변환 후 원본 삭제 (`delete_original`)**
+
+| 항목 | 설명 |
+|:---|:---|
+| `delete_original_var` (`BooleanVar`) | 체크박스 상태 |
+| `delete_confirm_popup_var` (`StringVar`) | `'show'` (확인 팝업 표시) / `'hide'` (바로 삭제) |
+| `toggle_delete_options()` | 삭제 체크박스 상태에 따라 하위 라디오버튼 활성/비활성 |
+| `conversion_finished()` | 변환 완료 후 `results['original_paths']`를 참조하여 삭제 처리. 팝업 표시 모드면 변환 전후 요약(개수·용량)을 보여주고 사용자가 삭제/유지 선택. 바로 삭제 모드면 팝업 없이 즉시 삭제 |
+| `_delete_original_files(paths)` | 실제 `os.remove()` 호출 및 삭제 성공/실패 건수 로그 기록 |
+| `_fmt_size(bytes)` | 바이트를 B/KB/MB/GB 단위 문자열로 변환하는 내부 헬퍼 |
+
+변환 요약(변환 전 총 개수·용량, 변환 완료 총 개수·용량)은 `logger.info`로 로그에도 동시 기록됩니다.
 
 #### E. 중복/유사 이미지 찾기 (Duplicate Finder)
 별도의 스레드와 복잡한 알고리즘을 사용합니다.
@@ -221,6 +247,26 @@ main.py
 ---
 
 ## 5. 버전별 개발 현황 (Version History)
+
+### v1.1.7 (2026-06-06) - Feature Update
+- **Image Converter (이미지 변환) 신기능 2종 추가**:
+    - **입력 폴더에 출력 기능**:
+        - `image_converter_tab.py`: IO 섹션에 "입력 폴더에 출력" 체크박스(row=2) 추가. 활성화 시 출력 폴더 입력란·찾아보기 버튼 자동 비활성화.
+        - 이름 충돌 처리 라디오버튼 3종(패스 / 덮어쓰기 / 숫자 추가) 추가(row=3). `output_to_input`이 꺼져 있거나 접미사가 켜져 있으면 자동 비활성화.
+        - `toggle_output_to_input()` 메서드 신설. `toggle_suffix_entry()`에 충돌 라디오버튼 연동 로직 추가.
+        - `start_conversion()`: `output_to_input` 활성 시 `target_folder`에 `source_folder`를 임시 대입하여 기존 `validate_settings` 통과.
+        - `image_file_utils.py`: `generate_output_filename_to_input()` 함수 추가 (입력 파일의 부모 디렉터리를 출력 경로로 사용). `handle_file_conflicts_for_input()` 함수 추가 (skip / overwrite / rename 3종 충돌 처리).
+        - `image_converter_engine.py`: `convert_image()` 내 `output_to_input` 플래그 분기 추가. True면 신규 두 함수 사용, False면 기존 경로 유지.
+        - `image_settings.py`: `output_settings`에 `output_to_input` (기본 `False`), `input_conflict_mode` (기본 `'rename'`) 키 추가.
+    - **변환 후 원본 삭제 기능**:
+        - `image_converter_tab.py`: 액션 버튼 하단에 "원본 삭제 설정" `LabelFrame` 추가. "변환 후 원본 삭제" 체크박스 및 확인 방식 라디오버튼 2종(확인 팝업 표시 / 바로 삭제) 포함.
+        - `toggle_delete_options()` 메서드 신설. 체크박스 Off 시 하위 라디오버튼 비활성.
+        - `conversion_finished()`: 삭제 옵션 활성 시 `results['original_paths']`로 변환 전 개수·용량, 변환 후 개수·용량 산출. 팝업 표시 모드면 요약 팝업 후 yes/no 선택. 바로 삭제 모드면 즉시 삭제. 요약은 로그에도 기록.
+        - `_delete_original_files()` 내부 헬퍼 추가: `os.remove()` 호출, 성공/실패 건수 로그 기록.
+        - `_fmt_size()` 내부 헬퍼 추가: 바이트 → B/KB/MB/GB 단위 문자열 변환.
+        - `image_converter_engine.py`: `batch_convert_images()` 반환 dict에 `original_paths` 키 추가. 성공 결과마다 원본 경로 수집(멀티프로세싱·순차 처리 양쪽 모두).
+        - `image_settings.py`: `delete_settings` 섹션 신설 (`delete_original` 기본 `False`, `delete_confirm_popup` 기본 `True`).
+    - **설정 영구 저장**: 위 4개 신규 설정 키가 `converter_config.json`에 자동 저장·복원되도록 `save_settings_from_gui()` / `load_settings_to_gui()` 양쪽 갱신.
 
 ### v1.1.6 (2026-05-01) - Feature Update
 - **Search & Filter (검색 및 분류) 기능 추가**:

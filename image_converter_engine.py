@@ -77,14 +77,23 @@ def convert_image(input_path: str, settings: dict) -> dict:
     conversion_settings = settings['conversion_settings']
     metadata_settings = settings['metadata_settings']
 
-    output_path = file_manager.generate_output_filename(
-        input_path, 
-        output_settings['target_folder'], 
-        output_settings['target_format'],
-        output_settings['naming_pattern']
-    )
-
-    final_output_path = file_manager.handle_file_conflicts(output_path, output_settings['overwrite_policy'])
+    # 입력폴더에 출력 모드 분기
+    if output_settings.get('output_to_input', False):
+        output_path = file_manager.generate_output_filename_to_input(
+            input_path,
+            output_settings['target_format'],
+            output_settings['naming_pattern']
+        )
+        conflict_mode = output_settings.get('input_conflict_mode', 'rename')
+        final_output_path = file_manager.handle_file_conflicts_for_input(output_path, conflict_mode)
+    else:
+        output_path = file_manager.generate_output_filename(
+            input_path,
+            output_settings['target_folder'],
+            output_settings['target_format'],
+            output_settings['naming_pattern']
+        )
+        final_output_path = file_manager.handle_file_conflicts(output_path, output_settings['overwrite_policy'])
 
     if final_output_path is None:
         return {'status': 'skipped', 'path': input_path, 'reason': 'File exists and overwrite policy is skip'}
@@ -130,7 +139,7 @@ def convert_image(input_path: str, settings: dict) -> dict:
 
 def batch_convert_images(file_list: List[str], settings: Dict, progress_callback: Callable = None, control_callbacks: Dict[str, Callable] = None) -> Dict:
     """이미지 파일 목록을 배치 처리합니다."""
-    results = {'success': [], 'error': [], 'skipped': []}
+    results = {'success': [], 'error': [], 'skipped': [], 'original_paths': []}
     total_files = len(file_list)
     
     use_multiprocessing = settings.get('processing_settings', {}).get('multiprocessing_enabled', False)
@@ -160,6 +169,8 @@ def batch_convert_images(file_list: List[str], settings: Dict, progress_callback
                         break
 
                 results[result['status']].append(result)
+                if result['status'] == 'success':
+                    results['original_paths'].append(result['input'])
                 if progress_callback:
                     progress_callback(i + 1, total_files, result.get('input', file_list[i]))
     else:
@@ -182,6 +193,8 @@ def batch_convert_images(file_list: List[str], settings: Dict, progress_callback
 
             result = convert_image(file_path, settings)
             results[result['status']].append(result)
+            if result['status'] == 'success':
+                results['original_paths'].append(result['input'])
             if progress_callback:
                 progress_callback(i + 1, total_files, file_path)
             

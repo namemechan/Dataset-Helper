@@ -25,7 +25,13 @@ def get_default_settings() -> dict:
             'naming_pattern': '{original_name}_converted',
             'use_suffix': True,
             'suffix_text': '_converted',
-            'overwrite_policy': 'rename'  # 'skip', 'overwrite', 'rename'
+            'overwrite_policy': 'rename',  # 'skip', 'overwrite', 'rename'
+            'output_to_input': False,       # 입력폴더에 출력
+            'input_conflict_mode': 'rename' # 'skip', 'overwrite', 'rename'
+        },
+        'delete_settings': {
+            'delete_original': False,       # 변환 후 원본 삭제
+            'delete_confirm_popup': True    # 삭제 전 확인 팝업 표시
         },
         'conversion_settings': {
             'quality_enabled': True,

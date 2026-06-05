@@ -32,6 +32,12 @@ class ImageConverterGUI:
 
         self.progress_rate_limiter = RateLimiter(max_calls_per_second=10)
         
+        # 새 기능 변수
+        self.output_to_input_var = tk.BooleanVar(value=False)
+        self.input_conflict_mode_var = tk.StringVar(value='rename')
+        self.delete_original_var = tk.BooleanVar(value=False)
+        self.delete_confirm_popup_var = tk.StringVar(value='show')  # 'show' | 'hide'
+        
         # Checkbox variables for input extensions
         self.input_ext_vars = {} 
         self.all_ext_var = tk.BooleanVar(value=True)
@@ -98,15 +104,45 @@ class ImageConverterGUI:
         ttk.Button(self.io_frame, text="찾아보기", command=self.select_source_folder).grid(row=0, column=2)
 
         ttk.Label(self.io_frame, text="출력 폴더:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(self.io_frame, textvariable=self.target_folder_var, width=40).grid(row=1, column=1, sticky=tk.EW, padx=5)
-        ttk.Button(self.io_frame, text="찾아보기", command=self.select_target_folder).grid(row=1, column=2)
+        self.target_folder_entry = ttk.Entry(self.io_frame, textvariable=self.target_folder_var, width=40)
+        self.target_folder_entry.grid(row=1, column=1, sticky=tk.EW, padx=5)
+        self.target_folder_browse_btn = ttk.Button(self.io_frame, text="찾아보기", command=self.select_target_folder)
+        self.target_folder_browse_btn.grid(row=1, column=2)
+
+        # --- 입력폴더에 출력 옵션 ---
+        output_to_input_cb = ttk.Checkbutton(
+            self.io_frame, text="입력 폴더에 출력",
+            variable=self.output_to_input_var,
+            command=self.toggle_output_to_input
+        )
+        output_to_input_cb.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
+
+        # 충돌 처리 옵션 프레임 (output_to_input 활성 시만 enabled)
+        self.conflict_mode_frame = ttk.Frame(self.io_frame)
+        self.conflict_mode_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W, padx=(20, 0), pady=(0, 2))
+        ttk.Label(self.conflict_mode_frame, text="이름 충돌 시:").pack(side=tk.LEFT, padx=(0, 6))
+        self.rb_conflict_skip = ttk.Radiobutton(
+            self.conflict_mode_frame, text="패스",
+            variable=self.input_conflict_mode_var, value='skip'
+        )
+        self.rb_conflict_skip.pack(side=tk.LEFT, padx=3)
+        self.rb_conflict_overwrite = ttk.Radiobutton(
+            self.conflict_mode_frame, text="덮어쓰기",
+            variable=self.input_conflict_mode_var, value='overwrite'
+        )
+        self.rb_conflict_overwrite.pack(side=tk.LEFT, padx=3)
+        self.rb_conflict_rename = ttk.Radiobutton(
+            self.conflict_mode_frame, text="숫자 추가",
+            variable=self.input_conflict_mode_var, value='rename'
+        )
+        self.rb_conflict_rename.pack(side=tk.LEFT, padx=3)
 
         # --- Naming Suffix Widgets ---
         self.use_suffix_var = tk.BooleanVar(value=True)
         self.suffix_text_var = tk.StringVar(value="_converted")
         
         suffix_frame = ttk.Frame(self.io_frame)
-        suffix_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=2)
+        suffix_frame.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=2)
         
         ttk.Checkbutton(suffix_frame, text="파일명 접미사 추가:", variable=self.use_suffix_var, command=self.toggle_suffix_entry).pack(side=tk.LEFT)
         self.suffix_entry = ttk.Entry(suffix_frame, textvariable=self.suffix_text_var, width=15)
@@ -114,6 +150,9 @@ class ImageConverterGUI:
         ttk.Label(suffix_frame, text="(예: image_converted.png)").pack(side=tk.LEFT)
 
         self.io_frame.columnconfigure(1, weight=1)
+
+        # 초기 상태 반영
+        self.toggle_output_to_input()
 
         # --- Filter Widgets ---
         # All Checkbox
@@ -166,6 +205,34 @@ class ImageConverterGUI:
         self.undo_button = ttk.Button(self.action_frame, text="마지막 작업 취소", command=self.undo_last_conversion, state=tk.DISABLED)
         self.undo_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
+        # --- 변환 후 원본 삭제 옵션 ---
+        delete_frame = ttk.LabelFrame(self.action_frame.master, text="원본 삭제 설정", padding="6")
+        delete_frame.pack(fill=tk.X, pady=(0, 4))
+
+        delete_cb = ttk.Checkbutton(
+            delete_frame, text="변환 후 원본 삭제",
+            variable=self.delete_original_var,
+            command=self.toggle_delete_options
+        )
+        delete_cb.pack(anchor=tk.W)
+
+        self.delete_opts_frame = ttk.Frame(delete_frame)
+        self.delete_opts_frame.pack(anchor=tk.W, padx=(20, 0))
+        ttk.Label(self.delete_opts_frame, text="삭제 전 확인:").pack(side=tk.LEFT, padx=(0, 6))
+        self.rb_delete_show = ttk.Radiobutton(
+            self.delete_opts_frame, text="확인 팝업 표시",
+            variable=self.delete_confirm_popup_var, value='show'
+        )
+        self.rb_delete_show.pack(side=tk.LEFT, padx=3)
+        self.rb_delete_hide = ttk.Radiobutton(
+            self.delete_opts_frame, text="바로 삭제",
+            variable=self.delete_confirm_popup_var, value='hide'
+        )
+        self.rb_delete_hide.pack(side=tk.LEFT, padx=3)
+
+        # 초기 상태
+        self.toggle_delete_options()
+
         # --- Progress Bar and Labels ---
         self.progress_bar = ttk.Progressbar(self.progress_frame, orient='horizontal', mode='determinate')
         self.progress_bar.pack(fill=tk.X, expand=True, pady=5)
@@ -179,6 +246,35 @@ class ImageConverterGUI:
         self.log_text['yscrollcommand'] = log_scrollbar.set
         log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    def toggle_output_to_input(self):
+        """'입력 폴더에 출력' 체크박스 상태에 따라 출력폴더 입력·충돌옵션·접미사연동 제어."""
+        is_checked = self.output_to_input_var.get()
+        # 출력폴더 입력란/버튼 비활성화
+        folder_state = tk.DISABLED if is_checked else tk.NORMAL
+        self.target_folder_entry.config(state=folder_state)
+        self.target_folder_browse_btn.config(state=folder_state)
+        # 충돌 처리 라디오버튼 활성/비활성
+        # 단, 접미사가 켜져 있으면 충돌 자체가 사실상 발생하지 않으므로 비활성
+        use_suffix = self.use_suffix_var.get() if hasattr(self, 'use_suffix_var') else False
+        conflict_state = tk.DISABLED if (not is_checked or use_suffix) else tk.NORMAL
+        for rb in (self.rb_conflict_skip, self.rb_conflict_overwrite, self.rb_conflict_rename):
+            rb.config(state=conflict_state)
+
+    def toggle_suffix_entry(self):
+        state = tk.NORMAL if self.use_suffix_var.get() else tk.DISABLED
+        self.suffix_entry.config(state=state)
+        # 접미사 켜지면 충돌옵션은 의미없으므로 비활성
+        if self.output_to_input_var.get():
+            conflict_state = tk.DISABLED if self.use_suffix_var.get() else tk.NORMAL
+            for rb in (self.rb_conflict_skip, self.rb_conflict_overwrite, self.rb_conflict_rename):
+                rb.config(state=conflict_state)
+
+    def toggle_delete_options(self):
+        """'변환 후 원본 삭제' 체크박스 상태에 따라 하위 라디오버튼 활성/비활성."""
+        state = tk.NORMAL if self.delete_original_var.get() else tk.DISABLED
+        self.rb_delete_show.config(state=state)
+        self.rb_delete_hide.config(state=state)
 
     def select_source_folder(self):
         folder = filedialog.askdirectory()
@@ -194,10 +290,6 @@ class ImageConverterGUI:
         state = self.all_ext_var.get()
         for var in self.input_ext_vars.values():
             var.set(state)
-
-    def toggle_suffix_entry(self):
-        state = tk.NORMAL if self.use_suffix_var.get() else tk.DISABLED
-        self.suffix_entry.config(state=state)
 
     def toggle_quality_spinbox(self):
         self.quality_spinbox.config(state=tk.NORMAL if self.quality_enabled_var.get() else tk.DISABLED)
@@ -236,9 +328,21 @@ class ImageConverterGUI:
                 if ext.lower() in saved_formats or (ext == "JPG" and ("jpg" in saved_formats or "jpeg" in saved_formats)):
                     var.set(True)
 
+        # 새 기능: 입력폴더에 출력
+        out_settings = self.settings.get('output_settings', {})
+        self.output_to_input_var.set(out_settings.get('output_to_input', False))
+        self.input_conflict_mode_var.set(out_settings.get('input_conflict_mode', 'rename'))
+
+        # 새 기능: 변환 후 원본 삭제
+        del_settings = self.settings.get('delete_settings', {})
+        self.delete_original_var.set(del_settings.get('delete_original', False))
+        self.delete_confirm_popup_var.set(del_settings.get('delete_confirm_popup', 'show'))
+
         self.toggle_quality_spinbox()
         self.toggle_resize_spinbox()
         self.toggle_suffix_entry()
+        self.toggle_output_to_input()
+        self.toggle_delete_options()
 
     def save_settings_from_gui(self):
         self.settings['input_settings']['source_folder'] = self.source_folder_var.get()
@@ -278,6 +382,16 @@ class ImageConverterGUI:
             selected_formats = [".jpg", ".jpeg", ".png", ".webp"]
             
         self.settings['input_settings']['supported_formats'] = selected_formats
+
+        # 새 기능: 입력폴더에 출력
+        self.settings['output_settings']['output_to_input'] = self.output_to_input_var.get()
+        self.settings['output_settings']['input_conflict_mode'] = self.input_conflict_mode_var.get()
+
+        # 새 기능: 변환 후 원본 삭제
+        if 'delete_settings' not in self.settings:
+            self.settings['delete_settings'] = {}
+        self.settings['delete_settings']['delete_original'] = self.delete_original_var.get()
+        self.settings['delete_settings']['delete_confirm_popup'] = self.delete_confirm_popup_var.get()
         
         settings_manager.save_settings(self.settings)
 
@@ -290,6 +404,11 @@ class ImageConverterGUI:
 
     def start_conversion(self):
         self.save_settings_from_gui()
+
+        # output_to_input 모드면 validate용 target_folder를 source로 임시 대입
+        if self.settings['output_settings'].get('output_to_input', False):
+            self.settings['output_settings']['target_folder'] = self.settings['input_settings']['source_folder']
+
         is_valid, errors = settings_manager.validate_settings(self.settings)
         if not is_valid:
             messagebox.showerror("설정 오류", "\n".join(errors))
@@ -345,8 +464,77 @@ class ImageConverterGUI:
         self.stop_button.config(state=tk.DISABLED)
         if self.last_conversion_results:
             self.undo_button.config(state=tk.NORMAL)
-        self.status_label_var.set(f"변환 완료! 성공: {len(results.get('success',[]))}, 실패: {len(results.get('error',[]))}, 건너뜀: {len(results.get('skipped',[]))}")
+
+        success_count = len(results.get('success', []))
+        error_count = len(results.get('error', []))
+        skipped_count = len(results.get('skipped', []))
+        self.status_label_var.set(
+            f"변환 완료! 성공: {success_count}, 실패: {error_count}, 건너뜀: {skipped_count}"
+        )
+
+        # 원본 삭제 기능
+        if self.delete_original_var.get() and results.get('original_paths'):
+            original_paths = results['original_paths']
+            orig_count = len(original_paths)
+            orig_size = sum(os.path.getsize(p) for p in original_paths if os.path.exists(p))
+            conv_size = sum(
+                os.path.getsize(r['output'])
+                for r in results.get('success', [])
+                if os.path.exists(r.get('output', ''))
+            )
+
+            summary_msg = (
+                f"[변환 결과 요약]\n"
+                f"  변환 전 원본:  {orig_count}개  /  {self._fmt_size(orig_size)}\n"
+                f"  변환 완료:     {success_count}개  /  {self._fmt_size(conv_size)}\n\n"
+            )
+            logger.info(summary_msg.strip(), module="delete_original")
+
+            if self.delete_confirm_popup_var.get() == 'show':
+                answer = messagebox.askyesno(
+                    "원본 삭제 확인",
+                    summary_msg + "원본 파일을 삭제하시겠습니까?\n\n"
+                    "  [예] → 원본 삭제\n  [아니오] → 원본 유지"
+                )
+                if answer:
+                    self._delete_original_files(original_paths)
+                else:
+                    logger.info("사용자가 원본 유지를 선택했습니다.", module="delete_original")
+                    messagebox.showinfo("완료", "이미지 변환이 완료되었습니다.\n원본 파일은 유지됩니다.")
+                    return
+            else:
+                # 확인 없이 바로 삭제
+                self._delete_original_files(original_paths)
+                return
+
         messagebox.showinfo("완료", "이미지 변환이 완료되었습니다.")
+
+    def _fmt_size(self, size_bytes: int) -> str:
+        """바이트를 읽기 쉬운 단위로 변환."""
+        for unit in ('B', 'KB', 'MB', 'GB'):
+            if size_bytes < 1024:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.1f} TB"
+
+    def _delete_original_files(self, original_paths: list):
+        """원본 파일 목록을 삭제하고 결과를 로그/팝업으로 알립니다."""
+        deleted_count = 0
+        failed_count = 0
+        for path in original_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    logger.info(f"원본 삭제: {path}", module="delete_original")
+                    deleted_count += 1
+            except OSError as e:
+                logger.error(f"원본 삭제 실패: {path} - {e}", module="delete_original")
+                failed_count += 1
+        msg = f"원본 파일 {deleted_count}개를 삭제했습니다."
+        if failed_count:
+            msg += f"\n삭제 실패: {failed_count}개 (로그 확인)"
+        logger.info(msg, module="delete_original")
+        messagebox.showinfo("완료", f"이미지 변환이 완료되었습니다.\n{msg}")
 
     def undo_last_conversion(self):
         if not self.last_conversion_results:

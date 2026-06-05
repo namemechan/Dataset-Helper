@@ -70,6 +70,40 @@ def handle_file_conflicts(output_path: str, policy: str = 'rename') -> str:
             return new_path
         counter += 1
 
+def generate_output_filename_to_input(input_path: str, target_format: str, naming_pattern: str = '{original_name}') -> str:
+    """입력폴더에 출력할 때의 파일 경로를 생성합니다. 출력 폴더 = 입력 파일의 폴더."""
+    input_p = pathlib.Path(input_path)
+    original_name = input_p.stem
+    ext = target_format.lower().replace('.', '')
+    try:
+        new_name = naming_pattern.format(original_name=original_name, ext=ext)
+    except (KeyError, ValueError):
+        new_name = original_name
+    safe_name = os.path.basename(new_name)
+    return str(input_p.parent / f"{safe_name}.{ext}")
+
+
+def handle_file_conflicts_for_input(output_path: str, policy: str = 'rename') -> str:
+    """입력폴더=출력폴더 모드에서 파일 충돌을 처리합니다.
+    policy: 'skip' | 'overwrite' | 'rename'
+    - skip: None 반환 (건너뜀)
+    - overwrite: output_path 그대로 반환 (덮어쓰기)
+    - rename: 뒤에 _1, _2 ... 숫자를 붙여 반환
+    """
+    if not os.path.exists(output_path) or policy == 'overwrite':
+        return output_path
+    if policy == 'skip':
+        return None
+    # rename: _1, _2, ... 방식
+    base, ext = os.path.splitext(output_path)
+    counter = 1
+    while True:
+        new_path = f"{base}_{counter}{ext}"
+        if not os.path.exists(new_path):
+            return new_path
+        counter += 1
+
+
 def get_file_info(file_path: str) -> Dict[str, Any]:
     """파일의 상세 정보를 반환합니다."""
     try:
