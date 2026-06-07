@@ -14,6 +14,7 @@ from image_converter_tab import ImageConverterGUI
 from duplicate_finder_tab import DuplicateFinderGUI
 from dataset_analyzer_tab import DatasetAnalyzerGUI
 from search_filter_tab import SearchFilterGUI
+from xyz_plot_tab import XYPlotGUI
 from app_logger import logger
 import os
 import sys
@@ -122,8 +123,11 @@ class DatasetOrganizerGUI:
         # 탭 6: 데이터셋 분석 (New)
         self.create_analyzer_tab(notebook)
 
-        # 탭 7: 검색 및 분류 (New)
+        # 탭 7: 검색 및 분류 
         self.create_search_filter_tab(notebook)
+
+        # 탭 8: XY표 만들기
+        self.create_xy_plot_tab(notebook)
     
     def create_rename_tab(self, notebook):
         tab_frame = ttk.Frame(notebook)
@@ -442,6 +446,11 @@ class DatasetOrganizerGUI:
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="검색 및 분류")
         self.search_filter_gui = SearchFilterGUI(frame, folder_path_var=self.folder_path_var, core_var=self.core_var)
+
+    def create_xy_plot_tab(self, notebook):
+        tab_frame = ttk.Frame(notebook)
+        notebook.add(tab_frame, text="XY표 만들기")
+        self.xy_plot_gui = XYPlotGUI(tab_frame, lambda: self.core_var.get(), logger)
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -846,6 +855,7 @@ class DatasetOrganizerGUI:
             
             "find_subdirs": self.find_subdirs.get(),
             "tag_find_subdirs": self.tag_find_subdirs.get(),
+            **self.xy_plot_gui.get_settings(),
         }
         
         try:
@@ -999,6 +1009,7 @@ class DatasetOrganizerGUI:
                 self.find_subdirs.set(settings["find_subdirs"])
             if "tag_find_subdirs" in settings:
                 self.tag_find_subdirs.set(settings["tag_find_subdirs"])
+                self.xy_plot_gui.load_settings(settings)
                 
         except Exception as e:
             print(f"설정 로드 실패: {e}")

@@ -18,7 +18,7 @@
 
 ## 2. 모듈별 상세 구조 및 역할 (Module Structure)
 
-프로젝트는 크게 **메인 시스템**, **공통 유틸리티**, 그리고 **6가지 핵심 기능 모듈**로 나뉩니다.
+프로젝트는 크게 **메인 시스템**, **공통 유틸리티**, 그리고 **7가지 핵심 기능 모듈**로 나뉩니다.
 
 ### 2.1. 메인 시스템 (Core System)
 애플리케이션의 진입점이자 전체적인 레이아웃을 담당합니다.
@@ -185,9 +185,88 @@ process_entries(
 | `SaveSnapshotDialog` | 스냅샷 이름·메모 입력용 모달 다이얼로그. |
 | `LoadSnapshotDialog` | 드롭다운 목록 + 파일 탐색기 양방식 스냅샷 선택 다이얼로그. |
 
----
+#### H. XY표 만들기 (XY Plot Builder)
+모델 병합 블록별 비교 등 다수의 이미지를 행·열 표 형태로 합성하는 도구입니다.
 
-## 3. 데이터 흐름 및 상호작용 (Data Flow)
+| 파일명 | 역할 |
+|:---:|:---|
+| **`xyz_plot_tab.py`** | **UI 담당**. 폴더 입력(셀프선택/자동감지), 라벨 입력 격자, 각종 옵션 패널, 미리보기 창(`_PreviewWindow` 클래스) 포함. `XYPlotGUI` 클래스로 구현. |
+| **`xyz_plot_engine.py`** | **핵심 엔진**. 이미지 수집·정렬, 셀 크기 결정, 이미지 합성, 텍스트 렌더링, 저장 처리. UI에 무관한 순수 로직만 포함. |
+
+##### `xyz_plot_engine.py` 핵심 구조
+
+**데이터 클래스**
+
+| 클래스 | 설명 |
+|:---|:---|
+| `FolderEntry` | 폴더 경로(`folder_path`)와 라벨(`label`). 라벨 미입력 시 엔진 내부에서 폴더명으로 자동 대체. |
+| `XYPlotConfig` | 탭이 엔진으로 넘기는 전체 설정 묶음. 아래 주요 필드 참고. |
+| `BuildResult` | 엔진 반환값. `success: bool`, `image: PIL.Image`, `error_msg: str`. |
+
+**`XYPlotConfig` 주요 필드**
+
+| 필드 | 타입 | 설명 |
+|:---|:---|:---|
+| `entries` | `list[FolderEntry]` | 폴더 목록 |
+| `col_labels` | `list[str]` | 열 라벨 (격자 첫 행 입력값) |
+| `row_labels_extra` | `list[str]` | 행 라벨 (격자 첫 열 입력값, 폴더 없는 행 포함) |
+| `grid_cols` / `grid_rows` | `int` | 격자에서 지정한 열/행 수. 표의 고정 크기로 작동. 0이면 데이터 기준 자동 결정. |
+| `folder_axis` | `str` | `'row'`(폴더→행) / `'col'`(폴더→열) |
+| `sort_order` | `str` | `'name_asc'` / `'name_desc'` / `'date_asc'` / `'date_desc'` / `'size_asc'` / `'size_desc'` |
+| `cell_mode` | `str` | `'tight'`(원본 크기) / `'longest_edge'`(최장변 기준 정사각형) |
+| `resize_base` | `str` | `'largest'` / `'smallest'` / `'custom'` |
+| `resize_method` | `str` | `'scale'`(종횡비 유지+레터박스) / `'crop'`(중앙 크롭) |
+| `downscale_ratio` | `float` | 1.0 = 원본. `cell_w/h`에 한 번만 적용하며, 폰트·여백 등 모든 치수가 자동으로 따라감. |
+
+**공개 함수**
+
+```python
+build_plot(config: XYPlotConfig, progress_callback=None) -> BuildResult
+build_preview(config: XYPlotConfig) -> BuildResult   # 완성본 렌더링 후 1600px 이하로 축소
+save_image(image: Image, config: XYPlotConfig) -> tuple[bool, str]
+save_preview_image(image: Image, path: str) -> tuple[bool, str]
+```
+
+**폰트 크기 계산 원칙**
+- `cell_w/h`에 `downscale_ratio`를 한 번 적용한 뒤, 폰트는 해당 치수를 직접 기준으로 계산.
+- `scale`을 폰트 계산에 추가로 곱하지 않음 (이중 적용 방지).
+- `FONT_AUTO`: `label_row_h * 0.6`, `FONT_FIT`: `_calc_fit_fontsize`(이진탐색), `FONT_MANUAL`: 입력 pt × scale.
+- 제목 폰트(AUTO): `title_h * 0.55`.
+
+**한글 폰트 처리**
+엔진 내 `_load_font(size)`가 Windows 맑은 고딕 → Arial → Pillow 기본 순으로 폴백 처리. 탭·엔진 양쪽 모두 별도 폰트 파일 불필요.
+
+##### `xyz_plot_tab.py` 주요 구조
+
+| 항목 | 설명 |
+|:---|:---|
+| `XYPlotGUI` | 탭 루트 클래스. `parent` Frame에 `PanedWindow`로 좌(설정)/우(격자) 분할. |
+| `_PreviewWindow` | 미리보기 전용 `Toplevel`. 마우스 휠 줌, 드래그 패닝, 창 크기 변경 시 fit 지원. 창 이동(위치 변화)은 무시하고 크기 변화만 감지하여 불필요한 재렌더링 방지. |
+| `_swap_axis()` | 격자 행/열 수 전치 + 라벨 전치. `axis_var`(라디오버튼) 변경 없이 라벨만 재배치. |
+| `get_settings()` / `load_settings()` | `main.py` 설정 저장·복원 연동. 키 접두사 `xy_*`. |
+
+**`main.py` 연동 체크리스트**
+```python
+# 1. import
+from xyz_plot_tab import XYPlotGUI
+
+# 2. create_widgets 내 탭 추가
+self.create_xy_plot_tab(notebook)
+
+# 3. 탭 생성 메서드
+def create_xy_plot_tab(self, notebook):
+    tab_frame = ttk.Frame(notebook)
+    notebook.add(tab_frame, text="XY표 만들기")
+    self.xy_plot_gui = XYPlotGUI(tab_frame, lambda: self.core_var.get(), logger)
+
+# 4. save_settings 내
+**self.xy_plot_gui.get_settings(),
+
+# 5. load_settings 내
+self.xy_plot_gui.load_settings(settings)
+```
+
+--- 데이터 흐름 및 상호작용 (Data Flow)
 
 ### 일반적인 작업 흐름
 1. **User Action:** 사용자가 `main.py` 또는 `*_tab.py`의 GUI에서 버튼 클릭.
@@ -247,6 +326,26 @@ main.py
 ---
 
 ## 5. 버전별 개발 현황 (Version History)
+
+### v1.2.0 (2026-06-07) - Feature Update
+- **XY표 만들기 (XY Plot Builder) 기능 추가**:
+    - **신규 파일 추가**:
+        - `xyz_plot_engine.py`: XY표 합성 핵심 엔진. `FolderEntry` · `XYPlotConfig` · `BuildResult` 데이터 클래스, 이미지 수집·정렬·합성·텍스트 렌더링·저장 로직 포함.
+        - `xyz_plot_tab.py`: XY표 만들기 탭 전체 UI. `XYPlotGUI` 클래스 및 미리보기 전용 `_PreviewWindow` 클래스 포함.
+    - **`main.py` 수정**:
+        - `XYPlotGUI` import 추가.
+        - `create_widgets`에 **탭 8: XY표 만들기** 탭 추가 (`create_xy_plot_tab` 메서드).
+        - `save_settings` / `load_settings`에 XY표 탭 관련 설정 (`xy_*` 키) 추가.
+    - **폴더 입력 2종**: 셀프 선택(목록 추가/제거), 폴더 자동 감지(상위 폴더 지정 → 하위 폴더 자동 수집).
+    - **이미지 정렬**: 기준(이름/날짜/크기) × 방향(오름/내림) 독립 선택.
+    - **배치 방향**: 폴더→행 / 폴더→열 선택. 행↔열 스왑 버튼으로 격자 라벨 전치.
+    - **라벨 입력 격자**: 행/열 수로 표 고정 크기 지정. 폴더/이미지 없는 칸은 `NO IMAGE` 표시.
+    - **셀 크기**: 바짝붙이기(원본 크기) / 최장변 기준 정사각형 2종.
+    - **혼합 해상도**: 기준(최대/최소/직접) × 처리 방식(스케일[종횡비+레터박스] / 크롭[중앙]) 조합.
+    - **텍스트 옵션**: 제목, 라벨 글자크기(자동/핏/설정), 가로·세로 정렬 개별 설정. 스케일조절 시 모든 치수가 일관되게 조정되도록 폰트 계산 원칙 정립.
+    - **저장**: PNG/WEBP/JPG, 압축 옵션, 동일 파일 덮어쓰기 확인.
+    - **미리보기 창**: 완성본 렌더링 후 축소(실제 결과와 정확히 일치). 휠 줌·드래그 패닝·창 리사이즈 대응. 창 이동 시 불필요한 재렌더링 방지.
+    - **한글 폰트**: 맑은 고딕 → Arial → Pillow 기본 순 자동 폴백.
 
 ### v1.1.7 (2026-06-06) - Feature Update
 - **Image Converter (이미지 변환) 신기능 2종 추가**:
