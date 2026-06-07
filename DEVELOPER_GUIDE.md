@@ -327,6 +327,23 @@ main.py
 
 ## 5. 버전별 개발 현황 (Version History)
 
+### v1.2.1 (2026-06-07) - Feature Update
+- **XY표 만들기 — 빈 칸 채우기 방식 선택 및 자동 격자 생성 추가**:
+    - **`xyz_plot_tab.py` 수정**:
+        - `_setup_vars()`: `fill_mode_var` (`StringVar`, 기본 `"grid"`) 추가.
+        - `_build_left()`: `_build_fill_mode_group()` 호출 삽입 (폴더 입력 방식 다음, 이미지 정렬 순서 이전).
+        - `_build_fill_mode_group()` 신규 메서드 추가: **격자 우선** / **데이터 우선** 라디오버튼 그룹 생성.
+        - `_build_right()`: "격자 생성" 버튼 옆에 **"자동 격자 생성"** 버튼(`command=self._auto_grid`) 추가.
+        - `_auto_grid()` 신규 메서드 추가: 현재 폴더 목록(셀프/자동 모드 모두 지원)과 각 폴더 내 이미지 수를 스캔하여, `folder_axis` 방향에 맞게 행/열을 자동 계산(`GRID_MAX=12` 클램프 적용) 후 `_rebuild_grid()` 호출. 이미지가 0개인 경우 경고 팝업 표시.
+        - `_collect_config()`: `XYPlotConfig` 생성 시 `fill_mode=self.fill_mode_var.get()` 파라미터 추가.
+        - `get_settings()`: `"xy_fill_mode"` 키 추가.
+        - `load_settings()`: `fill_mode_var` 로드 (`"xy_fill_mode"`, 기본 `"grid"`) 추가.
+    - **`xyz_plot_engine.py` 수정**:
+        - `XYPlotConfig` 데이터클래스: `fill_mode: str = "grid"` 필드 추가 (`grid_rows` 다음).
+        - `build_plot()` 내 표 크기 결정 로직 분리:
+            - **`fill_mode == "grid"` (격자 우선)**: 기존과 동일. `grid_rows` / `grid_cols` > 0이면 해당 값으로 표 크기 고정, 0이면 데이터 수 사용.
+            - **`fill_mode == "data"` (데이터 우선)**: `grid_rows` / `grid_cols` 값을 무시하고 `len(entries)` (폴더 수)와 `n_img_cols` (최대 이미지 수)를 표 크기로 사용. 폴더마다 이미지 수가 달라 발생하는 `NO IMAGE`는 정상 동작.
+
 ### v1.2.0 (2026-06-07) - Feature Update
 - **XY표 만들기 (XY Plot Builder) 기능 추가**:
     - **신규 파일 추가**:

@@ -68,6 +68,7 @@ class XYPlotConfig:
     row_labels_extra: list[str]          = field(default_factory=list)  # 격자에서 입력한 행 라벨
     grid_cols:        int                = 0   # 격자 지정 열 수 (0=자동)
     grid_rows:        int                = 0   # 격자 지정 행 수 (0=자동)
+    fill_mode:        str                = "grid"  # "grid" | "data"
     folder_axis:      str                = AXIS_ROW
     sort_order:       str                = SORT_NAME_ASC
     cell_mode:        str                = CELL_TIGHT
@@ -93,9 +94,10 @@ class XYPlotConfig:
 
 @dataclass
 class BuildResult:
-    success:   bool
-    image:     Optional[Image.Image] = None
-    error_msg: Optional[str]         = None
+    success:    bool
+    image:      Optional[Image.Image] = None  # 미리보기용 (축소 가능)
+    full_image: Optional[Image.Image] = None  # 완성본 원본 (build_preview에서 보존)
+    error_msg:  Optional[str]         = None
 
 
 # ------------------------------------------------------------------ #
@@ -172,7 +174,12 @@ def _fit_image(img: Image.Image, target_w: int, target_h: int, method: str) -> I
     METHOD_SCALE : 종횡비 유지, 긴 쪽을 target에 맞추고 빈 공간은 배경색으로 채움 (레터박스)
     METHOD_CROP  : 종횡비 유지로 셀을 꽉 채운 뒤 중앙 크롭
     """
-    src = img.convert("RGB")
+    if img.mode == "RGBA":
+        bg = Image.new("RGB", img.size, COLOR_BG)
+        bg.paste(img, mask=img.split()[3])
+        src = bg
+    else:
+        src = img.convert("RGB")
 
     if method == METHOD_SCALE:
         # 종횡비 유지하며 target 안에 최대한 맞춤
@@ -245,7 +252,7 @@ def _draw_text_in_box(draw, text, box, font, align_h="center", align_v="center",
 
 def _calc_fit_fontsize(text: str, box_w: int, box_h: int) -> int:
     """박스에 꽉 차는 최대 폰트 크기를 이진탐색으로 계산."""
-    lo, hi, best = 6, box_h, 6
+    lo, hi, best = 6, min(box_h, 300), 6
     tmp_img = Image.new("RGB", (1, 1))
     tmp_draw = ImageDraw.Draw(tmp_img)
     while lo <= hi:
@@ -264,6 +271,11 @@ def _calc_fit_fontsize(text: str, box_w: int, box_h: int) -> int:
 #  공개 함수
 # ------------------------------------------------------------------ #
 
+def collect_images(folder_path: str, sort_order: str) -> list:
+    """단일 폴더의 이미지 Path 목록을 반환합니다. (_collect_images 공개 래퍼)"""
+    return _collect_images(folder_path, sort_order)
+
+
 def collect_folder_images(entries, sort_order):
     result = []
     for entry in entries:
@@ -271,7 +283,13 @@ def collect_folder_images(entries, sort_order):
         images = []
         for p in paths:
             try:
-                images.append(Image.open(p).convert("RGBA"))
+                img = Image.open(p)
+                if img.mode == "RGBA":
+                    bg = Image.new("RGB", img.size, COLOR_BG)
+                    bg.paste(img, mask=img.split()[3])
+                    images.append(bg)
+                else:
+                    images.append(img.convert("RGB"))
             except Exception:
                 images.append(None)
         result.append(images)
@@ -304,16 +322,30 @@ def build_plot(
         if n_img_cols == 0:
             return BuildResult(success=False, error_msg="이미지를 찾을 수 없습니다.")
 
+        # ── fill_mode 에 따른 표 크기 결정 ───────────────────────
+        # "grid" (격자 우선): grid_rows × grid_cols를 표 크기로 고정.
+        #                     부족한 칸은 NO IMAGE로 채움.
+        # "data" (데이터 우선): 실제 폴더 수와 최대 이미지 수로 표 크기 결정.
+        #                     grid_rows/grid_cols가 0이 아닐 때도 데이터 기준 사용.
+        #                     단, 폴더마다 이미지 수가 달라 발생하는 NO IMAGE는 정상.
+        if config.fill_mode == "data":
+            # 데이터 기준: 폴더 수 × 최대 이미지 수
+            data_n_folders = len(entries)
+            data_n_images  = n_img_cols
+        else:
+            # 격자 기준: grid_* > 0이면 고정, 아니면 데이터 수 사용
+            data_n_folders = config.grid_rows if config.grid_rows > 0 else len(entries)
+            data_n_images  = config.grid_cols if config.grid_cols > 0 else n_img_cols
+
         # col_labels 길이 맞추기
-        # grid_cols가 지정된 경우 표 열 수를 고정, 아니면 이미지 수 기준
-        fixed_cols = config.grid_cols if config.grid_cols > 0 else n_img_cols
+        fixed_cols = data_n_images
         while len(col_labels) < fixed_cols:
             col_labels.append("")
 
         # ── folder_axis 반영 ──────────────────────────────────────
         if config.folder_axis == AXIS_COL:
             n_data_rows = fixed_cols
-            n_data_cols = config.grid_rows if config.grid_rows > 0 else len(entries)
+            n_data_cols = data_n_folders
             data_grid = [
                 [raw_images[ci][ri] if ci < len(raw_images) and ri < len(raw_images[ci]) else None
                  for ci in range(n_data_cols)]
@@ -322,7 +354,7 @@ def build_plot(
             x_labels = (row_labels + [""] * n_data_cols)[:n_data_cols]
             y_labels = col_labels[:n_data_rows]
         else:
-            n_data_rows = config.grid_rows if config.grid_rows > 0 else len(entries)
+            n_data_rows = data_n_folders
             n_data_cols = fixed_cols
             data_grid = [
                 [raw_images[ri][ci] if ri < len(raw_images) and ci < len(raw_images[ri]) else None
@@ -340,7 +372,7 @@ def build_plot(
             config.resize_custom_wh,
         )
 
-        # ── 다운스케일 ────────────────────────────────────────────
+        # ── 스케일조절 ────────────────────────────────────────────
         scale = config.downscale_ratio if config.downscale_enabled else 1.0
         if scale != 1.0:
             cell_w = max(1, int(cell_w * scale))
@@ -466,7 +498,8 @@ def build_plot(
             _draw_grid(draw, total_w, total_h,
                        label_col_w, label_row_h, cell_w, cell_h,
                        n_rows, n_cols,
-                       title_h if config.title_enabled else 0)
+                       title_h if config.title_enabled else 0,
+                       pad)
 
         return BuildResult(success=True, image=canvas)
 
@@ -479,21 +512,24 @@ def build_preview(config: XYPlotConfig) -> BuildResult:
     """
     완성본을 먼저 만든 뒤 썸네일로 축소해서 반환.
     이 방식이 레이아웃/폰트 계산을 재사용하므로 실제 결과와 정확히 일치함.
+    full_image에 원본을 보존하여 미리보기 창에서 재렌더링 없이 바로 저장 가능.
     """
     result = build_plot(config)
     if not result.success:
         return result
 
-    img = result.image
+    full_img = result.image
     MAX_PX = 1600  # 미리보기 최대 긴 변
-    longest = max(img.width, img.height)
+    longest = max(full_img.width, full_img.height)
     if longest > MAX_PX:
         ratio   = MAX_PX / longest
-        new_w   = max(1, int(img.width  * ratio))
-        new_h   = max(1, int(img.height * ratio))
-        img     = img.resize((new_w, new_h), Image.LANCZOS)
+        new_w   = max(1, int(full_img.width  * ratio))
+        new_h   = max(1, int(full_img.height * ratio))
+        preview = full_img.resize((new_w, new_h), Image.LANCZOS)
+    else:
+        preview = full_img
 
-    return BuildResult(success=True, image=img)
+    return BuildResult(success=True, image=preview, full_image=full_img)
 
 
 def save_image(image: Image.Image, config: XYPlotConfig) -> tuple[bool, str]:
@@ -543,14 +579,21 @@ def save_preview_image(image: Image.Image, path: str) -> tuple[bool, str]:
 
 
 def _draw_grid(draw, total_w, total_h, label_col_w, label_row_h,
-               cell_w, cell_h, n_rows, n_cols, title_h):
-    y = title_h + label_row_h
+               cell_w, cell_h, n_rows, n_cols, title_h, pad=0):
+    # 실제 드로잉 기준점 계산 (pad 포함)
+    origin_x = pad
+    origin_y = (title_h + pad if title_h > 0 else 0) + pad
+
+    # 수평선: 라벨행 아래 경계부터 각 데이터행 아래 경계까지
+    y = origin_y + label_row_h
     draw.line([(0, y), (total_w, y)], fill=COLOR_GRID, width=1)
     for _ in range(n_rows):
-        y += cell_h
+        y += cell_h + pad
         draw.line([(0, y), (total_w, y)], fill=COLOR_GRID, width=1)
-    x = label_col_w
+
+    # 수직선: 라벨열 오른쪽 경계부터 각 데이터열 오른쪽 경계까지
+    x = origin_x + label_col_w
     draw.line([(x, title_h), (x, total_h)], fill=COLOR_GRID, width=1)
     for _ in range(n_cols):
-        x += cell_w
+        x += cell_w + pad
         draw.line([(x, title_h), (x, total_h)], fill=COLOR_GRID, width=1)

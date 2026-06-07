@@ -24,6 +24,7 @@ from xyz_plot_engine import (
     RESIZE_CUSTOM, RESIZE_LARGEST, RESIZE_SMALLEST,
     BuildResult, FolderEntry, XYPlotConfig,
     build_plot, build_preview, save_image, save_preview_image,
+    collect_images,
 )
 
 GRID_CELL = 60
@@ -62,6 +63,7 @@ class XYPlotGUI:
 
         self.mode_var          = sv("folder")
         self.parent_folder     = sv("")
+        self.fill_mode_var     = sv("grid")   # grid | data
         self.axis_var          = sv(AXIS_ROW)
         self.grid_rows_var     = iv(3)
         self.grid_cols_var     = iv(3)
@@ -115,6 +117,7 @@ class XYPlotGUI:
 
     def _build_left(self, parent):
         self._build_folder_group(parent)
+        self._build_fill_mode_group(parent)
         self._build_sort_group(parent)
         self._build_axis_group(parent)
         self._build_cell_group(parent)
@@ -155,6 +158,19 @@ class XYPlotGUI:
         ttk.Button(af, text="선택", width=5, command=self._browse_parent_folder).pack(side=tk.LEFT)
 
         self._on_mode_change()
+
+    def _build_fill_mode_group(self, parent):
+        grp = ttk.LabelFrame(parent, text="빈 칸 채우기 방식", padding="8")
+        grp.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Radiobutton(
+            grp, text="격자 우선  (격자 크기 고정, 부족한 칸은 NO IMAGE)",
+            variable=self.fill_mode_var, value="grid",
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            grp, text="데이터 우선  (폴더·이미지 수 기준으로 표 크기 결정)",
+            variable=self.fill_mode_var, value="data",
+        ).pack(anchor=tk.W, pady=(4, 0))
 
     def _build_sort_group(self, parent):
         grp = ttk.LabelFrame(parent, text="이미지 정렬 순서", padding="8")
@@ -266,7 +282,7 @@ class XYPlotGUI:
         self._toggle_lbl_fs()
 
     def _build_padding_group(self, parent):
-        grp = ttk.LabelFrame(parent, text="패딩 / 다운스케일", padding="8")
+        grp = ttk.LabelFrame(parent, text="패딩 / 스케일조절", padding="8")
         grp.pack(fill=tk.X, pady=(0, 5))
 
         pad_f = ttk.Frame(grp)
@@ -277,7 +293,7 @@ class XYPlotGUI:
         self._pad_entry.pack(side=tk.LEFT, padx=(5, 2))
         ttk.Label(pad_f, text="px").pack(side=tk.LEFT)
 
-        ttk.Label(pad_f, text="   다운스케일").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(pad_f, text="   스케일조절").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Checkbutton(pad_f, variable=self.ds_en_var,
                         command=self._toggle_ds).pack(side=tk.LEFT)
         self._ds_entry = ttk.Entry(pad_f, textvariable=self.ds_pct_var, width=5)
@@ -337,6 +353,7 @@ class XYPlotGUI:
         ttk.Label(ctrl_f, text="열 수:").pack(side=tk.LEFT)
         ttk.Entry(ctrl_f, textvariable=self.grid_cols_var, width=4).pack(side=tk.LEFT, padx=(2, 8))
         ttk.Button(ctrl_f, text="격자 생성", command=self._rebuild_grid).pack(side=tk.LEFT)
+        ttk.Button(ctrl_f, text="자동 격자 생성", command=self._auto_grid).pack(side=tk.LEFT, padx=(5, 0))
 
         grid_outer = ttk.Frame(grp)
         grid_outer.grid(row=1, column=0, sticky="nsew")
@@ -353,12 +370,27 @@ class XYPlotGUI:
 
         self._grid_inner = ttk.Frame(self._grid_canvas)
         self._grid_canvas.create_window((0, 0), window=self._grid_inner, anchor=tk.NW)
-        self._grid_inner.bind(
-            "<Configure>",
-            lambda e: self._grid_canvas.configure(scrollregion=self._grid_canvas.bbox("all")),
-        )
+        self._grid_scrollregion_job  = None
+        self._grid_last_bbox         = None
+        self._grid_inner.bind("<Configure>", self._on_grid_inner_configure)
 
         self._rebuild_grid()
+
+    def _on_grid_inner_configure(self, event=None):
+        """격자 내부 프레임 크기 변화 — debounce 후 실제 bbox 변화 시에만 scrollregion 갱신"""
+        if self._grid_scrollregion_job:
+            self._grid_canvas.after_cancel(self._grid_scrollregion_job)
+        self._grid_scrollregion_job = self._grid_canvas.after(
+            30, self._apply_grid_scrollregion
+        )
+
+    def _apply_grid_scrollregion(self):
+        self._grid_scrollregion_job = None
+        bbox = self._grid_canvas.bbox("all")
+        if bbox is None or bbox == self._grid_last_bbox:
+            return
+        self._grid_last_bbox = bbox
+        self._grid_canvas.configure(scrollregion=bbox)
 
     def _rebuild_grid(self):
         for w in self._grid_inner.winfo_children():
@@ -400,6 +432,55 @@ class XYPlotGUI:
     # ---------------------------------------------------------------- #
     #  토글 핸들러
     # ---------------------------------------------------------------- #
+
+    def _auto_grid(self):
+        """
+        현재 설정된 폴더(셀프/자동)와 각 폴더 안의 이미지 수를 바탕으로
+        행×열을 자동 계산하여 격자를 생성합니다.
+
+        - folder_axis == AXIS_ROW: 폴더 수 → 행, max 이미지 수 → 열
+        - folder_axis == AXIS_COL: 폴더 수 → 열, max 이미지 수 → 행
+        결과는 GRID_MAX(12)로 클램프됩니다.
+        """
+        sort_order = self.sort_key_var.get() + "_" + self.sort_dir_var.get()
+
+        # 폴더 목록 수집
+        if self.mode_var.get() == "manual":
+            folder_paths = [pv.get().strip() for pv, _ in self._folder_entries if pv.get().strip()]
+        else:
+            parent_p = self.parent_folder.get().strip()
+            if not parent_p or not os.path.isdir(parent_p):
+                messagebox.showerror("오류", "유효한 상위 폴더를 지정해주세요.")
+                return
+            folder_paths = sorted(
+                [str(d) for d in Path(parent_p).iterdir() if d.is_dir()],
+                key=lambda d: d.lower(),
+            )
+
+        if not folder_paths:
+            messagebox.showerror("오류", "폴더가 지정되지 않았습니다.")
+            return
+
+        n_folders = len(folder_paths)
+        max_images = max(
+            (len(collect_images(fp, sort_order)) for fp in folder_paths),
+            default=0,
+        )
+        if max_images == 0:
+            messagebox.showwarning("경고", "폴더 안에 이미지가 없습니다.\n행/열을 폴더 수 기준으로만 설정합니다.")
+            max_images = 1
+
+        n_folders = max(1, min(GRID_MAX, n_folders))
+        max_images = max(1, min(GRID_MAX, max_images))
+
+        if self.axis_var.get() == AXIS_ROW:
+            self.grid_rows_var.set(n_folders)
+            self.grid_cols_var.set(max_images)
+        else:
+            self.grid_rows_var.set(max_images)
+            self.grid_cols_var.set(n_folders)
+
+        self._rebuild_grid()
 
     def _swap_axis(self):
         """격자의 첫 행/첫 열 라벨을 전치. 축 방향 라디오버튼은 건드리지 않음."""
@@ -579,6 +660,7 @@ class XYPlotGUI:
                 row_labels_extra=row_labels_extra,
                 grid_cols=grid_cols,
                 grid_rows=grid_rows,
+                fill_mode=self.fill_mode_var.get(),
                 folder_axis=self.axis_var.get(),
                 sort_order=self.sort_key_var.get() + "_" + self.sort_dir_var.get(),
                 cell_mode=self.cell_mode_var.get(),
@@ -683,6 +765,7 @@ class XYPlotGUI:
             "xy_grid_rows":      self.grid_rows_var.get(),
             "xy_grid_cols":      self.grid_cols_var.get(),
             "xy_grid_labels":    grid_labels,
+            "xy_fill_mode":      self.fill_mode_var.get(),
             "xy_axis":           self.axis_var.get(),
             "xy_sort_key":       self.sort_key_var.get(),
             "xy_sort_dir":       self.sort_dir_var.get(),
@@ -720,6 +803,7 @@ class XYPlotGUI:
 
         _s(self.mode_var,          "xy_mode",          "folder")
         _s(self.parent_folder,     "xy_parent_folder", "")
+        _s(self.fill_mode_var,     "xy_fill_mode",     "grid")
         _s(self.axis_var,          "xy_axis",          AXIS_ROW)
         _s(self.sort_key_var,      "xy_sort_key",      "name")
         _s(self.sort_dir_var,      "xy_sort_dir",      "asc")
@@ -957,12 +1041,15 @@ class _PreviewWindow:
                 return
             self._cfg.save_path = path
 
+        # full_image가 보존되어 있으면 재렌더링 없이 즉시 저장
+        # (미리보기와 동일한 이미지 보장)
+        full_img = self._result.full_image or self._result.image
+
         def _work():
-            full = build_plot(self._cfg)
-            if full.success:
-                ok, msg = save_image(full.image, self._cfg)
+            ok, msg = save_image(full_img, self._cfg)
+            if ok:
                 self._win.after(0, lambda: messagebox.showinfo("결과", msg))
             else:
-                self._win.after(0, lambda: messagebox.showerror("실패", full.error_msg))
+                self._win.after(0, lambda: messagebox.showerror("실패", msg))
 
         threading.Thread(target=_work, daemon=True).start()

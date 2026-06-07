@@ -76,9 +76,10 @@ class SearchFilterGUI:
 
         # 미리보기 관련
         self._preview_img_ref = None          # PhotoImage GC 방지
-        self._preview_orig_img = None         # 원본 PIL Image
+        self._preview_orig_img = None         # EXIF 보정 완료된 PIL Image
         self._current_entry: Optional[FileEntry] = None
         self._resize_job = None               # after() 디바운스 ID
+        self._last_preview_size = (-1, -1)    # 마지막 렌더링 Canvas 크기 캐시
 
         # 정렬 상태
         self._sort_col = "name"
@@ -565,11 +566,16 @@ class SearchFilterGUI:
 
     def _show_preview(self, entry: FileEntry):
         self._current_entry = entry
+        # 렌더링 크기 캐시 초기화 — 새 이미지가 선택됐으므로 반드시 재렌더
+        self._last_preview_size = (-1, -1)
 
         if entry.has_image():
             try:
                 img = Image.open(entry.image_path)
                 img.load()                          # 파일 핸들 즉시 해제
+                # EXIF 방향 보정은 이미지 로드 시 1회만 수행한다.
+                # _render_preview_to_canvas 에서 매번 수행하지 않아도 된다.
+                img = _apply_exif_orientation(img)
                 self._preview_orig_img = img
                 self._render_preview_to_canvas()
                 w, h = entry.resolution or (0, 0)
@@ -604,23 +610,33 @@ class SearchFilterGUI:
         self._tag_preview.config(state=tk.DISABLED)
 
     def _render_preview_to_canvas(self):
-        """원본 PIL 이미지를 현재 Canvas 크기에 비율 유지하여 fit 렌더링."""
+        """원본 PIL 이미지를 현재 Canvas 크기에 비율 유지하여 fit 렌더링.
+
+        최적화 포인트:
+        - update_idletasks() 제거 — 호출 자체가 이벤트 루프를 flush해
+          추가 Configure 이벤트를 유발하므로 제거한다.
+        - copy() / EXIF 보정 제거 — _show_preview()에서 1회 처리한 이미지를
+          _preview_orig_img 에 보관하므로 여기서 반복할 필요 없다.
+        - 크기 변화 없으면 skip — PIL resize + PhotoImage 생성 비용을 아낀다.
+        """
         if self._preview_orig_img is None:
             return
-        self._img_canvas.update_idletasks()
         cw = self._img_canvas.winfo_width()
         ch = self._img_canvas.winfo_height()
         if cw <= 1 or ch <= 1:
             return
 
-        img = self._preview_orig_img.copy()
-        img = _apply_exif_orientation(img)
+        # 동일 크기면 재렌더 불필요
+        if (cw, ch) == getattr(self, "_last_preview_size", None):
+            return
+        self._last_preview_size = (cw, ch)
 
-        iw, ih = img.size
+        iw, ih = self._preview_orig_img.size
         scale   = min(cw / iw, ch / ih)
         new_w   = max(1, int(iw * scale))
         new_h   = max(1, int(ih * scale))
-        resized = img.resize((new_w, new_h), Image.LANCZOS)
+        # BILINEAR: 미리보기 품질로는 충분하며 LANCZOS 대비 약 3~5배 빠름
+        resized = self._preview_orig_img.resize((new_w, new_h), Image.BILINEAR)
 
         photo = ImageTk.PhotoImage(resized)
         self._img_canvas.delete("all")
@@ -628,10 +644,12 @@ class SearchFilterGUI:
         self._preview_img_ref = photo   # GC 방지
 
     def _on_preview_canvas_resize(self, event):
-        """Canvas 크기 변경 시 100ms 디바운스 후 재렌더."""
+        """Canvas 크기 변경 시 150ms 디바운스 후 재렌더.
+        100ms → 150ms: PanedWindow 3중 중첩에서 발화하는 연속 이벤트를
+        충분히 하나로 묶기 위해 여유를 늘린다."""
         if self._resize_job:
             self._img_canvas.after_cancel(self._resize_job)
-        self._resize_job = self._img_canvas.after(100, self._render_preview_to_canvas)
+        self._resize_job = self._img_canvas.after(150, self._render_preview_to_canvas)
 
     def _open_image_viewer(self, event=None):
         """인라인 미리보기 클릭 시 독립 뷰어 창 열기."""

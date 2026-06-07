@@ -132,74 +132,74 @@ class DatasetOrganizerGUI:
     def create_rename_tab(self, notebook):
         tab_frame = ttk.Frame(notebook)
         notebook.add(tab_frame, text="이름 변경")
-        
-        scroll = ScrollableFrame(tab_frame)
-        scroll.pack(fill=tk.BOTH, expand=True)
-        frame = scroll.scrollable_frame
-        
-        # 입력 프레임 (frame -> scroll.scrollable_frame)
-        input_frame = ttk.LabelFrame(frame, text="설정", padding="5")
+
+        # 상단 컨트롤 영역 - 고정 높이
+        top = ttk.Frame(tab_frame)
+        top.pack(fill=tk.X)
+
+        # 입력 프레임
+        input_frame = ttk.LabelFrame(top, text="설정", padding="5")
         input_frame.pack(fill=tk.X, pady=(0, 5))
         input_frame.columnconfigure(1, weight=1) # 입력창 확장
-        
+
         ttk.Label(input_frame, text="기본 이름:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.rename_base = ttk.Entry(input_frame, width=30)
         self.rename_base.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
         self.rename_base.insert(0, "image")
-        
+
         ttk.Label(input_frame, text="시작 번호:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.rename_start = ttk.Entry(input_frame, width=30)
         self.rename_start.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
         self.rename_start.insert(0, "1")
-        
+
         ttk.Label(input_frame, text="숫자 자릿수:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.rename_digits = ttk.Entry(input_frame, width=30)
         self.rename_digits.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
         self.rename_digits.insert(0, "6")
-        
+
         # 버튼 프레임
-        btn_frame = ttk.Frame(frame)
+        btn_frame = ttk.Frame(top)
         btn_frame.pack(fill=tk.X, pady=5)
-        
+
         ttk.Button(btn_frame, text="미리보기", command=self.preview_rename).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="이름 변경 실행", command=self.execute_rename).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="실행 취소", command=self.undo_rename, 
+        ttk.Button(btn_frame, text="실행 취소", command=self.undo_rename,
                   style="Accent.TButton").pack(side=tk.LEFT, padx=5)
-        
-        # 결과 텍스트
-        ttk.Label(frame, text="결과:").pack(anchor=tk.W)
-        self.rename_text = scrolledtext.ScrolledText(frame, height=20)
+
+        # 결과 텍스트 - tab_frame에 직접 배치하여 남은 공간 전부 차지
+        ttk.Label(tab_frame, text="결과:").pack(anchor=tk.W)
+        self.rename_text = scrolledtext.ScrolledText(tab_frame, height=20)
         self.rename_text.pack(fill=tk.BOTH, expand=True)
     
     def create_find_single_tab(self, notebook):
         tab_frame = ttk.Frame(notebook)
         notebook.add(tab_frame, text="단일 파일 찾기")
-        
-        scroll = ScrollableFrame(tab_frame)
-        scroll.pack(fill=tk.BOTH, expand=True)
-        frame = scroll.scrollable_frame
-        
+
+        # 상단 컨트롤 영역 - 고정 높이
+        top = ttk.Frame(tab_frame)
+        top.pack(fill=tk.X)
+
         # 버튼 프레임
-        btn_frame = ttk.Frame(frame)
+        btn_frame = ttk.Frame(top)
         btn_frame.pack(fill=tk.X, pady=5)
-        
+
         ttk.Button(btn_frame, text="단일 이미지 찾기", command=self.find_single_images).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="단일 텍스트 찾기", command=self.find_single_texts).pack(side=tk.LEFT, padx=5)
-        
+
         ttk.Checkbutton(btn_frame, text="하위 폴더 포함 검색", variable=self.find_subdirs).pack(side=tk.LEFT, padx=15)
-        
-        # 결과 텍스트
-        ttk.Label(frame, text="결과:").pack(anchor=tk.W)
-        self.single_text = scrolledtext.ScrolledText(frame, height=15)
+
+        # 결과 텍스트 - tab_frame에 직접 배치하여 남은 공간 전부 차지
+        ttk.Label(tab_frame, text="결과:").pack(anchor=tk.W)
+        self.single_text = scrolledtext.ScrolledText(tab_frame, height=15)
         self.single_text.pack(fill=tk.BOTH, expand=True)
-        
-        # 작업 버튼 프레임
-        action_frame = ttk.Frame(frame)
+
+        # 작업 버튼 프레임 - tab_frame에 직접 배치 (하단 고정)
+        action_frame = ttk.Frame(tab_frame)
         action_frame.pack(fill=tk.X, pady=5)
-        
+
         ttk.Button(action_frame, text="삭제", command=self.delete_single_files).pack(side=tk.LEFT, padx=5)
         ttk.Button(action_frame, text="이동", command=self.move_single_files).pack(side=tk.LEFT, padx=5)
-        
+
         self.single_files = []
     
     def create_tag_tab(self, notebook):
@@ -1009,7 +1009,7 @@ class DatasetOrganizerGUI:
                 self.find_subdirs.set(settings["find_subdirs"])
             if "tag_find_subdirs" in settings:
                 self.tag_find_subdirs.set(settings["tag_find_subdirs"])
-                self.xy_plot_gui.load_settings(settings)
+            self.xy_plot_gui.load_settings(settings)
                 
         except Exception as e:
             print(f"설정 로드 실패: {e}")
